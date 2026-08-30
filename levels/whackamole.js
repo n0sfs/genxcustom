@@ -1,0 +1,171 @@
+function createWhackAMoleLevel(api) {
+  const { W, H, isDown, addScore, loseLife, winLevel, sfx, shake } = api;
+  const BOMB_CHANCE = 0.2;
+
+  const GRID = 3;
+  const HOLE_R = 46;
+  const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+  const TARGET_SCORE = 30;
+  const MISS_LIMIT = 4;
+  const UP_TIME_START = 1.05;
+  const UP_TIME_MIN = 0.55;
+  const GAP_TIME = 0.35;
+
+  const holes = [];
+  for (let r = 0; r < GRID; r++) {
+    for (let c = 0; c < GRID; c++) {
+      holes.push({
+        x: W / 2 + (c - 1) * 170,
+        y: 130 + r * 130,
+      });
+    }
+  }
+
+  let score, misses, activeHole, moleTimer, gapTimer, phase, prevKeys, popScale, hitFlash, isBomb, bombFlash;
+
+  function scheduleGap() {
+    phase = 'gap';
+    gapTimer = GAP_TIME;
+    activeHole = -1;
+  }
+
+  function spawnMole() {
+    phase = 'up';
+    activeHole = Math.floor(Math.random() * holes.length);
+    isBomb = Math.random() < BOMB_CHANCE;
+    const upTime = Math.max(UP_TIME_MIN, UP_TIME_START - score * 0.02);
+    moleTimer = upTime;
+    popScale = 0;
+  }
+
+  return {
+    init() {
+      score = 0;
+      misses = 0;
+      prevKeys = {};
+      hitFlash = 0;
+      bombFlash = 0;
+      isBomb = false;
+      scheduleGap();
+    },
+
+    update(dt) {
+      hitFlash = Math.max(0, hitFlash - dt);
+      bombFlash = Math.max(0, bombFlash - dt);
+      const justPressed = {};
+      KEYS.forEach((k) => {
+        const down = isDown(k);
+        justPressed[k] = down && !prevKeys[k];
+        prevKeys[k] = down;
+      });
+
+      if (phase === 'gap') {
+        gapTimer -= dt;
+        if (gapTimer <= 0) spawnMole();
+        return;
+      }
+
+      moleTimer -= dt;
+      popScale = Math.min(1, popScale + dt * 8);
+
+      const pressedKey = KEYS.find((k) => justPressed[k]);
+      if (pressedKey !== undefined) {
+        const idx = KEYS.indexOf(pressedKey);
+        if (idx === activeHole) {
+          if (isBomb) {
+            misses += 2;
+            bombFlash = 0.2;
+            sfx('explosion');
+            shake(0.15, 4);
+            if (misses >= MISS_LIMIT) {
+              loseLife();
+              return;
+            }
+          } else {
+            score += 3;
+            addScore(3);
+            hitFlash = 0.15;
+            sfx('hit');
+            if (score >= TARGET_SCORE) {
+              winLevel(30);
+              return;
+            }
+          }
+          scheduleGap();
+          return;
+        }
+      }
+
+      if (moleTimer <= 0) {
+        if (!isBomb) {
+          misses++;
+          sfx('bounce');
+          if (misses >= MISS_LIMIT) {
+            loseLife();
+            return;
+          }
+        }
+        scheduleGap();
+      }
+    },
+
+    draw(ctx) {
+      ctx.fillStyle = '#100a08';
+      ctx.fillRect(0, 0, W, H);
+
+      holes.forEach((h, i) => {
+        ctx.fillStyle = '#3a2416';
+        ctx.beginPath();
+        ctx.ellipse(h.x, h.y + 14, HOLE_R, HOLE_R * 0.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (i === activeHole) {
+          const s = popScale;
+          if (isBomb) {
+            ctx.fillStyle = bombFlash > 0 ? '#ff5c5c' : '#1a1a22';
+            ctx.beginPath();
+            ctx.arc(h.x, h.y + 14 - 30 * s, HOLE_R * 0.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#3a3a44';
+            ctx.fillRect(h.x - 3, h.y - 20 - 30 * s, 6, 8);
+            ctx.strokeStyle = '#ff9a4f';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(h.x, h.y - 20 - 30 * s);
+            ctx.lineTo(h.x + 6, h.y - 28 - 30 * s);
+            ctx.stroke();
+            ctx.fillStyle = '#ffd24f';
+            ctx.beginPath();
+            ctx.arc(h.x + 6, h.y - 28 - 30 * s, 2, 0, Math.PI * 2);
+            ctx.fill();
+          } else {
+            ctx.fillStyle = hitFlash > 0 ? '#6bff6b' : '#8a5a3a';
+            ctx.beginPath();
+            ctx.ellipse(h.x, h.y + 14 - 30 * s, HOLE_R * 0.6, HOLE_R * 0.7 * s, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#1a1a1a';
+            ctx.beginPath();
+            ctx.arc(h.x - 10, h.y - 6 - 30 * s, 3, 0, Math.PI * 2);
+            ctx.arc(h.x + 10, h.y - 6 - 30 * s, 3, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+
+        ctx.fillStyle = '#7d86a3';
+        ctx.font = '10px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(KEYS[i], h.x, h.y + 38);
+        ctx.textAlign = 'left';
+      });
+
+      ctx.fillStyle = '#ffd24f';
+      ctx.font = '10px monospace';
+      ctx.fillText(`SCORE ${score}/${TARGET_SCORE}`, 12, 24);
+      ctx.fillStyle = '#ff5c5c';
+      ctx.fillText(`MISSES ${misses}/${MISS_LIMIT}`, 12, 40);
+      ctx.fillStyle = '#7d86a3';
+      ctx.font = '8px monospace';
+      ctx.fillText('WHACK MOLES, DODGE BOMBS', 12, H - 12);
+    },
+  };
+}

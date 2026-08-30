@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GENX ARCADE</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="wrap">
+    <div id="hud">
+      <span id="hud-title">GENX ARCADE</span>
+      <span id="hud-level">LEVEL 1/12</span>
+      <span id="hud-score">SCORE 0</span>
+      <span id="hud-lives">LIVES ▲▲▲</span>
+      <span id="hud-sound">SOUND ON</span>
+    </div>
+
+    <div id="stage">
+      <canvas id="game" width="640" height="480"></canvas>
+
+      <div id="screen-title" class="screen">
+        <h1>GENX ARCADE</h1>
+        <p class="sub">twelve classics. one quarter.</p>
+        <div class="levelist" id="level-list"></div>
+        <p class="prompt blink">PRESS ENTER TO START</p>
+        <p id="title-highscore" class="sub"></p>
+        <p class="controls">UP/DOWN choose game &middot; ENTER start &middot; M mute</p>
+      </div>
+
+      <div id="screen-levelcomplete" class="screen hidden">
+        <h2 id="lc-title">LEVEL CLEAR</h2>
+        <p id="lc-score"></p>
+        <p class="prompt blink">PRESS ENTER TO CONTINUE</p>
+      </div>
+
+      <div id="screen-gameover" class="screen hidden">
+        <h2 class="danger">GAME OVER</h2>
+        <p id="go-score"></p>
+        <p class="prompt blink">PRESS ENTER TO RETRY</p>
+      </div>
+
+      <div id="screen-win" class="screen hidden">
+        <h2 class="win">ARCADE CLEARED!</h2>
+        <p id="win-score"></p>
+        <p class="prompt blink">PRESS ENTER FOR NEW GAME</p>
+      </div>
+
+      <div id="screen-pause" class="screen hidden">
+        <h2>PAUSED</h2>
+        <p class="prompt blink">PRESS P TO RESUME</p>
+      </div>
+    </div>
+
+    <div id="footer">a genx production &middot; built for the browser</div>
+  </div>
+
+  <script src="game.js"></script>
+  <script src="levels/shooter.js"></script>
+  <script src="levels/platformer.js"></script>
+  <script src="levels/breakout.js"></script>
+  <script src="levels/maze.js"></script>
+  <script src="levels/snake.js"></script>
+  <script src="levels/whackamole.js"></script>
+  <script src="levels/racing.js"></script>
+  <script src="levels/zelda.js"></script>
+  <script src="levels/pinball.js"></script>
+  <script src="levels/frogger.js"></script>
+  <script src="levels/commando.js"></script>
+  <script src="levels/tetris.js"></script>
+  <script>
+    Game.registerLevel('STARBLASTER', createShooterLevel, 'shooter');
+    Game.registerLevel('CRATE RUNNER', createPlatformerLevel, 'platformer');
+    Game.registerLevel('WALL SMASH', createBreakoutLevel, 'breakout');
+    Game.registerLevel('MAZE MUNCH', createMazeLevel, 'maze');
+    Game.registerLevel('BYTE CHASER', createSnakeLevel, 'snake');
+    Game.registerLevel('REFLEX RUSH', createWhackAMoleLevel, 'reflex');
+    Game.registerLevel('TURBO DODGE', createRacingLevel, 'racing');
+    Game.registerLevel("HERO'S TRIAL", createZeldaLevel, 'dungeon');
+    Game.registerLevel('SILVER TILT', createPinballLevel, 'pinball');
+    Game.registerLevel('HOP HAZARD', createFroggerLevel, 'frogger');
+    Game.registerLevel('OPERATION VIPER', createCommandoLevel, 'run-n-gun');
+    Game.registerLevel('BLOCK CASCADE', createTetrisLevel, 'puzzle');
+    Game.boot();
+  </script>
+</body>
+</html>

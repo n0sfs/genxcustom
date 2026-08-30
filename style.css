@@ -1,0 +1,160 @@
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap');
+
+:root {
+  --bg: #0b0e14;
+  --panel: #12151f;
+  --line: #2a2f3d;
+  --cyan: #4fe3d0;
+  --magenta: #ff4fa3;
+  --yellow: #ffd24f;
+  --green: #6bff6b;
+  --red: #ff5c5c;
+  --text: #e8ecff;
+  --display: 'Press Start 2P', monospace;
+  --mono: 'VT323', ui-monospace, 'Cascadia Code', Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 20%, #1a1f2e 0%, #060709 70%);
+  color: var(--text);
+  font-family: var(--mono);
+  padding: 16px;
+}
+
+#wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: 760px;
+}
+
+#hud {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px 18px;
+  flex-wrap: wrap;
+  background: var(--panel);
+  border: 2px solid var(--line);
+  padding: 10px 16px;
+  font-size: clamp(14px, 3.6vw, 19px);
+  letter-spacing: 0.5px;
+  border-radius: 4px;
+}
+
+#hud-title { color: var(--magenta); font-family: var(--display); font-size: 0.55em; }
+#hud-level { color: var(--cyan); }
+#hud-score { color: var(--yellow); }
+#hud-lives { color: var(--red); }
+#hud-sound { color: #7d86a3; font-size: 0.7em; cursor: default; }
+
+#title-highscore { color: var(--yellow); font-size: 15px; }
+
+#stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: #000;
+  border: 3px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: 0 0 40px rgba(79, 227, 208, 0.08), inset 0 0 60px rgba(0,0,0,0.6);
+}
+
+#stage::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.16) 0px,
+    rgba(0, 0, 0, 0.16) 1px,
+    transparent 2px,
+    transparent 3px
+  );
+  mix-blend-mode: multiply;
+}
+
+#game {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.screen {
+  position: absolute;
+  inset: 0;
+  background: rgba(6, 7, 10, 0.92);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: clamp(6px, 2vh, 14px);
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.screen.hidden { display: none; }
+
+.screen h1 {
+  font-family: var(--display);
+  color: var(--cyan);
+  font-size: clamp(20px, 5vw, 32px);
+  margin: 0;
+  text-shadow: 3px 3px 0 var(--magenta);
+}
+
+.screen h2 {
+  font-family: var(--display);
+  color: var(--yellow);
+  font-size: clamp(14px, 3.6vw, 20px);
+  margin: 0;
+}
+
+.screen h2.danger { color: var(--red); }
+.screen h2.win { color: var(--green); text-shadow: 2px 2px 0 var(--cyan); }
+
+.sub { color: #9aa3c0; font-size: 17px; letter-spacing: 1px; margin: 0; }
+
+.levelist {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 4px 28px;
+  font-size: 17px;
+  color: var(--text);
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--line);
+  padding: 14px 20px;
+  border-radius: 4px;
+}
+
+.levelist div { display: flex; justify-content: space-between; gap: 14px; white-space: nowrap; padding: 2px 6px; border-radius: 3px; }
+.levelist .tag { color: var(--cyan); }
+.levelist div.selected { background: rgba(107, 255, 107, 0.14); box-shadow: inset 2px 0 0 var(--green); }
+.levelist div.selected .lvl-num { color: var(--green); }
+
+@media (max-width: 460px) {
+  .levelist { grid-template-columns: 1fr; font-size: 15px; }
+}
+
+.prompt { font-family: var(--display); font-size: 11px; color: var(--green); }
+.controls { font-size: 15px; color: #7d86a3; letter-spacing: 0.5px; }
+
+.blink { animation: blink 1.1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+#footer {
+  text-align: center;
+  font-size: 14px;
+  color: #556;
+  letter-spacing: 1px;
+}
