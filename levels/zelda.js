@@ -307,8 +307,7 @@ function createZeldaLevel(api) {
       ctx.save();
       ctx.translate(-camX, -camY);
 
-      ctx.fillStyle = '#3a2f1c';
-      ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+      FX.gradientRect(ctx, 0, 0, WORLD_W, WORLD_H, '#463824', '#2e2414');
       ctx.strokeStyle = 'rgba(0,0,0,0.15)';
       for (let x = 0; x < WORLD_W; x += 40) {
         ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, WORLD_H); ctx.stroke();
@@ -318,10 +317,7 @@ function createZeldaLevel(api) {
       }
 
       walls.forEach((w) => {
-        ctx.fillStyle = '#6b4a2a';
-        ctx.fillRect(w.x, w.y, w.w, w.h);
-        ctx.fillStyle = '#8a6238';
-        ctx.fillRect(w.x, w.y, w.w, 4);
+        FX.bevelRect(ctx, w.x, w.y, w.w, w.h, '#6b4a2a', 3);
       });
 
       if (goalActive) {
@@ -348,14 +344,8 @@ function createZeldaLevel(api) {
       enemies.filter((e) => e.alive).forEach((e) => {
         const ecx = e.x + e.w / 2, ecy = e.y + e.h / 2;
         if (e.type === 'chaser') {
-          ctx.fillStyle = '#c93a7a';
-          ctx.beginPath();
-          ctx.ellipse(ecx, ecy + 2, e.w / 2, e.h / 2 - 1, 0, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.fillStyle = '#ff4fa3';
-          ctx.beginPath();
-          ctx.ellipse(ecx, ecy, e.w / 2, e.h / 2, 0, 0, Math.PI * 2);
-          ctx.fill();
+          FX.shadow(ctx, ecx, ecy + e.h / 2 + 2, e.w / 2, 3, 0.3);
+          FX.sphere(ctx, ecx, ecy, e.w / 2, '#ff4fa3');
           ctx.fillStyle = '#fff';
           ctx.beginPath();
           ctx.arc(ecx - 4, ecy - 2, 3, 0, Math.PI * 2);
@@ -367,10 +357,10 @@ function createZeldaLevel(api) {
           ctx.arc(ecx + 4, ecy - 1, 1.4, 0, Math.PI * 2);
           ctx.fill();
         } else {
-          ctx.fillStyle = '#2a5a5a';
-          ctx.fillRect(e.x, e.y, e.w, e.h);
+          FX.shadow(ctx, ecx, e.y + e.h + 2, e.w / 2, 3, 0.3);
+          FX.bevelRect(ctx, e.x, e.y, e.w, e.h, '#2a5a5a', 3);
           ctx.fillStyle = '#4fe3d0';
-          ctx.fillRect(e.x + 2, e.y + 2, e.w - 4, e.h - 4);
+          ctx.fillRect(e.x + 4, e.y + 4, e.w - 8, e.h - 8);
           ctx.fillStyle = '#0a2a2a';
           ctx.beginPath();
           ctx.arc(ecx, ecy, 4, 0, Math.PI * 2);
@@ -381,14 +371,15 @@ function createZeldaLevel(api) {
       if (boss && boss.alive) {
         const bcx = boss.x + boss.w / 2, bcy = boss.y + boss.h / 2;
         const flashing = boss.hitFlash > 0 && Math.floor(boss.hitFlash * 20) % 2 === 0;
-        ctx.fillStyle = flashing ? '#fff' : '#5a1a3a';
-        ctx.beginPath();
-        ctx.ellipse(bcx, bcy + 3, boss.w / 2, boss.h / 2 - 2, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = flashing ? '#fff' : '#8a2a5a';
-        ctx.beginPath();
-        ctx.ellipse(bcx, bcy, boss.w / 2 - 3, boss.h / 2 - 5, 0, 0, Math.PI * 2);
-        ctx.fill();
+        FX.shadow(ctx, bcx, bcy + boss.h / 2 + 3, boss.w / 2, 5, 0.4);
+        if (flashing) {
+          ctx.fillStyle = '#fff';
+          ctx.beginPath();
+          ctx.ellipse(bcx, bcy, boss.w / 2, boss.h / 2, 0, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          FX.sphere(ctx, bcx, bcy, boss.w / 2, '#8a2a5a');
+        }
         ctx.fillStyle = '#ffd24f';
         ctx.beginPath();
         ctx.arc(bcx - 9, bcy - 4, 4, 0, Math.PI * 2);
@@ -441,8 +432,8 @@ function createZeldaLevel(api) {
           ? '#ffd24f'
           : (player.hitFlash > 0 && Math.floor(player.hitFlash * 20) % 2 === 0) ? '#ff5c5c' : '#3fae3f';
         const pcx = player.x + player.w / 2;
-        ctx.fillStyle = bodyColor;
-        ctx.fillRect(player.x, player.y + 9, player.w, player.h - 9);
+        FX.shadow(ctx, pcx, player.y + player.h + 3, player.w / 2, 3, 0.3);
+        FX.bevelRect(ctx, player.x, player.y + 9, player.w, player.h - 9, bodyColor, 3);
         ctx.fillStyle = '#7a4a1a';
         ctx.fillRect(player.x, player.y + player.h - 8, player.w, 3);
         ctx.fillStyle = '#e8b98a';

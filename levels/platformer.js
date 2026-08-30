@@ -40,6 +40,7 @@ function createPlatformerLevel(api) {
     const cx = p.x + p.w / 2;
     const stride = onGround && p.vx !== 0 ? Math.sin(p.animT) * 5 : 0;
     const legLift = !onGround ? 3 : 0;
+    if (onGround) FX.shadow(ctx, cx, p.y + p.h + 2, p.w / 2, 3, 0.3);
     ctx.fillStyle = '#1a3a4a';
     ctx.fillRect(cx - 5 + stride * 0.3, p.y + 20 - legLift, 4, 8 + legLift);
     ctx.fillRect(cx + 1 - stride * 0.3, p.y + 20 - legLift, 4, 8 + legLift);
@@ -190,20 +191,16 @@ function createPlatformerLevel(api) {
       ctx.save();
       ctx.translate(-camX, 0);
 
-      ctx.fillStyle = '#3a2f5a';
       platforms.forEach((p) => {
-        ctx.fillRect(p.x, p.y, p.w, p.h);
+        FX.shadow(ctx, p.x + p.w / 2, p.y + p.h + 6, p.w / 2, 6, 0.3);
+        FX.bevelRect(ctx, p.x, p.y, p.w, p.h, '#3a2f5a', 3);
         ctx.fillStyle = '#6bff6b';
         ctx.fillRect(p.x, p.y, p.w, 4);
-        ctx.fillStyle = '#3a2f5a';
       });
 
-      ctx.fillStyle = '#ffd24f';
       coinList.forEach((c) => {
         if (c.taken) return;
-        ctx.beginPath();
-        ctx.arc(c.x, c.y, 6, 0, Math.PI * 2);
-        ctx.fill();
+        FX.sphere(ctx, c.x, c.y, 6, '#ffd24f');
       });
 
       enemies.filter((e) => e.alive).forEach((e) => {

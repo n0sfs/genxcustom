@@ -18,10 +18,8 @@ function createRacingLevel(api) {
   }
 
   function drawFuel(ctx, x, y, w, h) {
-    ctx.fillStyle = '#2a2a2a';
-    ctx.fillRect(x, y, w, h);
-    ctx.fillStyle = '#4fe3d0';
-    ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
+    FX.shadow(ctx, x + w / 2, y + h + 3, w / 2, 3, 0.3);
+    FX.bevelBlock(ctx, x, y, w, h, '#4fe3d0', 3);
     ctx.fillStyle = '#0a2a2a';
     ctx.font = 'bold 10px monospace';
     ctx.textAlign = 'center';
@@ -30,13 +28,11 @@ function createRacingLevel(api) {
   }
 
   function drawCar(ctx, x, y, w, h, body) {
+    FX.shadow(ctx, x + w / 2, y + h + 4, w / 2 + 2, 4, 0.35);
     ctx.fillStyle = '#161616';
     ctx.fillRect(x - 2, y + 5, 4, h - 10);
     ctx.fillRect(x + w - 2, y + 5, 4, h - 10);
-    ctx.fillStyle = body;
-    ctx.fillRect(x, y, w, h);
-    ctx.fillStyle = 'rgba(255,255,255,0.22)';
-    ctx.fillRect(x + 2, y + 2, w - 4, 3);
+    FX.bevelBlock(ctx, x, y, w, h, body, 4);
     ctx.fillStyle = '#1a2430';
     ctx.fillRect(x + 4, y + h * 0.32, w - 8, h * 0.3);
     ctx.fillStyle = '#ffe38a';
@@ -143,8 +139,7 @@ function createRacingLevel(api) {
       ctx.fillStyle = '#182018';
       ctx.fillRect(0, 0, W, H);
 
-      ctx.fillStyle = '#2e2e36';
-      ctx.fillRect(ROAD_X, 0, ROAD_W, H);
+      FX.gradientRect(ctx, ROAD_X, 0, ROAD_W, H, '#3a3a44', '#232328');
 
       ctx.strokeStyle = 'rgba(255,255,255,0.5)';
       ctx.lineWidth = 3;

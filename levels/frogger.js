@@ -51,6 +51,7 @@ function createFroggerLevel(api) {
 
   function drawFrog(ctx, f) {
     const cx = f.x + f.w / 2, cy = f.y + f.h / 2;
+    FX.shadow(ctx, cx, f.y + f.h + 2, f.w / 2, 3, 0.25);
     ctx.fillStyle = '#2a6a2a';
     ctx.beginPath();
     ctx.ellipse(f.x + 3, f.y + f.h - 3, 4, 3, 0, 0, Math.PI * 2);
@@ -60,7 +61,10 @@ function createFroggerLevel(api) {
     ctx.beginPath();
     ctx.ellipse(cx, cy + 2, f.w / 2, f.h / 2 - 1, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#5fd45f';
+    const frogGrad = ctx.createRadialGradient(cx - 4, cy - 4, 2, cx, cy, f.w / 2);
+    frogGrad.addColorStop(0, FX.shade('#5fd45f', 30));
+    frogGrad.addColorStop(1, '#5fd45f');
+    ctx.fillStyle = frogGrad;
     ctx.beginPath();
     ctx.ellipse(cx, cy, f.w / 2 - 1, f.h / 2 - 3, 0, 0, Math.PI * 2);
     ctx.fill();
@@ -77,10 +81,7 @@ function createFroggerLevel(api) {
   }
 
   function drawCar(ctx, c) {
-    ctx.fillStyle = '#8a1a4a';
-    ctx.fillRect(c.x, c.y, c.w, c.h);
-    ctx.fillStyle = '#ff4fa3';
-    ctx.fillRect(c.x, c.y + 2, c.w, c.h - 4);
+    FX.bevelBlock(ctx, c.x, c.y + 2, c.w, c.h - 4, '#ff4fa3', 3);
     ctx.fillStyle = '#1a2430';
     ctx.fillRect(c.x + c.w * 0.2, c.y + 3, c.w * 0.6, c.h - 6);
     ctx.fillStyle = '#ffe38a';
@@ -221,14 +222,11 @@ function createFroggerLevel(api) {
         ctx.fill();
       });
 
-      ctx.fillStyle = '#1a4a8a';
-      ctx.fillRect(0, 2 * CELL, W, 4 * CELL);
+      FX.gradientRect(ctx, 0, 2 * CELL, W, 4 * CELL, '#2a6aba', '#123a6a');
       rivers.forEach((lane) => {
         lane.items.forEach((l) => {
-          ctx.fillStyle = '#6a4420';
-          ctx.fillRect(l.x, l.y, l.w, l.h);
-          ctx.fillStyle = '#9a7040';
-          ctx.fillRect(l.x + 2, l.y + 2, l.w - 4, l.h - 4);
+          FX.shadow(ctx, l.x + l.w / 2, l.y + l.h - 2, l.w / 2, 4, 0.2);
+          FX.bevelBlock(ctx, l.x, l.y, l.w, l.h, '#8a5a2a', 3);
           ctx.fillStyle = 'rgba(0,0,0,0.15)';
           for (let gx = l.x + 6; gx < l.x + l.w - 4; gx += 10) ctx.fillRect(gx, l.y + 3, 2, l.h - 6);
         });

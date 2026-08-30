@@ -227,8 +227,7 @@ function createTetrisLevel(api) {
       for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
           if (board[r][c]) {
-            ctx.fillStyle = board[r][c];
-            ctx.fillRect(BOARD_X + c * CELL + 1, BOARD_Y + r * CELL + 1, CELL - 2, CELL - 2);
+            FX.bevelBlock(ctx, BOARD_X + c * CELL + 1, BOARD_Y + r * CELL + 1, CELL - 2, CELL - 2, board[r][c], 2);
           }
         }
       }
@@ -241,9 +240,8 @@ function createTetrisLevel(api) {
         if (gy >= 0) ctx.strokeRect(BOARD_X + gx * CELL + 2, BOARD_Y + gy * CELL + 2, CELL - 4, CELL - 4);
       });
 
-      ctx.fillStyle = SHAPES[piece.type].color;
       pieceCells(piece).forEach(([gx, gy]) => {
-        if (gy >= 0) ctx.fillRect(BOARD_X + gx * CELL + 1, BOARD_Y + gy * CELL + 1, CELL - 2, CELL - 2);
+        if (gy >= 0) FX.bevelBlock(ctx, BOARD_X + gx * CELL + 1, BOARD_Y + gy * CELL + 1, CELL - 2, CELL - 2, SHAPES[piece.type].color, 2);
       });
 
       particles.forEach((p) => {
@@ -259,9 +257,8 @@ function createTetrisLevel(api) {
       ctx.fillText('NEXT', sideX, 20);
       ctx.strokeStyle = 'rgba(255,255,255,0.15)';
       ctx.strokeRect(sideX, 30, 100, 70);
-      ctx.fillStyle = SHAPES[nextType].color;
       SHAPES[nextType].rot[0].forEach(([lx, ly]) => {
-        ctx.fillRect(sideX + 10 + lx * 18, 40 + ly * 18, 16, 16);
+        FX.bevelBlock(ctx, sideX + 10 + lx * 18, 40 + ly * 18, 16, 16, SHAPES[nextType].color, 2);
       });
 
       ctx.fillStyle = '#e8ecff';

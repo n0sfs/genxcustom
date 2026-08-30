@@ -247,19 +247,15 @@ function createPinballLevel(api) {
       ctx.fillStyle = '#0a0a14';
       ctx.fillRect(0, 0, W, H);
 
-      ctx.fillStyle = '#181828';
-      ctx.fillRect(20, 8, 600, 462);
+      FX.gradientRect(ctx, 20, 8, 600, 462, '#1e2038', '#12121e');
 
       walls.forEach((w) => {
-        ctx.fillStyle = '#4a4a6a';
-        ctx.fillRect(w.x, w.y, w.w, w.h);
+        FX.bevelRect(ctx, w.x, w.y, w.w, w.h, '#4a4a6a', 2);
       });
 
       bumpers.forEach((bp) => {
-        ctx.fillStyle = bp.flash > 0 ? '#fff' : bp.color;
-        ctx.beginPath();
-        ctx.arc(bp.x, bp.y, bp.r, 0, Math.PI * 2);
-        ctx.fill();
+        FX.shadow(ctx, bp.x, bp.y + bp.r * 0.7, bp.r * 0.9, bp.r * 0.3, 0.3);
+        FX.sphere(ctx, bp.x, bp.y, bp.r, bp.flash > 0 ? '#ffffff' : bp.color);
         ctx.strokeStyle = 'rgba(255,255,255,0.3)';
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -278,8 +274,11 @@ function createPinballLevel(api) {
       });
 
       targets.forEach((t) => {
-        ctx.fillStyle = t.alive ? '#ff9a4f' : '#3a2a20';
-        ctx.fillRect(t.x, t.y, t.w, t.h);
+        if (t.alive) FX.bevelBlock(ctx, t.x, t.y, t.w, t.h, '#ff9a4f', 2);
+        else {
+          ctx.fillStyle = '#3a2a20';
+          ctx.fillRect(t.x, t.y, t.w, t.h);
+        }
         ctx.strokeStyle = 'rgba(255,255,255,0.3)';
         ctx.lineWidth = 1;
         ctx.strokeRect(t.x, t.y, t.w, t.h);
@@ -291,11 +290,8 @@ function createPinballLevel(api) {
         ctx.fillText('SPACE TO LAUNCH', 470, 400);
       }
 
-      ctx.fillStyle = '#ffd24f';
       balls.forEach((ball) => {
-        ctx.beginPath();
-        ctx.arc(ball.x, ball.y, BALL_R, 0, Math.PI * 2);
-        ctx.fill();
+        FX.sphere(ctx, ball.x, ball.y, BALL_R, '#ffd24f');
       });
 
       ctx.font = '10px monospace';

@@ -163,20 +163,15 @@ function createBreakoutLevel(api) {
     },
 
     draw(ctx) {
-      ctx.fillStyle = '#050a08';
-      ctx.fillRect(0, 0, W, H);
+      FX.gradientRect(ctx, 0, 0, W, H, '#0c1712', '#03060a');
 
       bricks.forEach((b) => {
         if (!b.alive) return;
-        ctx.fillStyle = b.color;
-        ctx.fillRect(b.x, b.y, b.w, b.h);
+        FX.bevelBlock(ctx, b.x, b.y, b.w, b.h, b.color, 2);
       });
 
       powerups.forEach((p) => {
-        ctx.fillStyle = p.color;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 9, 0, Math.PI * 2);
-        ctx.fill();
+        FX.sphere(ctx, p.x, p.y, 9, p.color);
         ctx.fillStyle = '#0a0a0a';
         ctx.font = 'bold 10px monospace';
         ctx.textAlign = 'center';
@@ -184,14 +179,11 @@ function createBreakoutLevel(api) {
         ctx.textAlign = 'left';
       });
 
-      ctx.fillStyle = wideTimer > 0 ? '#8fffb0' : '#4fe3d0';
-      ctx.fillRect(paddle.x, paddle.y, paddle.w, paddle.h);
+      FX.shadow(ctx, paddle.x + paddle.w / 2, paddle.y + paddle.h + 4, paddle.w / 2, 3, 0.25);
+      FX.bevelBlock(ctx, paddle.x, paddle.y, paddle.w, paddle.h, wideTimer > 0 ? '#8fffb0' : '#4fe3d0', 4);
 
-      ctx.fillStyle = slowTimer > 0 ? '#bfe8ff' : '#ffd24f';
       balls.forEach((ball) => {
-        ctx.beginPath();
-        ctx.arc(ball.x, ball.y, BALL_R, 0, Math.PI * 2);
-        ctx.fill();
+        FX.sphere(ctx, ball.x, ball.y, BALL_R, slowTimer > 0 ? '#bfe8ff' : '#ffd24f');
       });
 
       particles.forEach((p) => {

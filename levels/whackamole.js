@@ -114,7 +114,11 @@ function createWhackAMoleLevel(api) {
       ctx.fillRect(0, 0, W, H);
 
       holes.forEach((h, i) => {
-        ctx.fillStyle = '#3a2416';
+        FX.shadow(ctx, h.x, h.y + 22, HOLE_R * 0.9, HOLE_R * 0.35, 0.4);
+        const moundGrad = ctx.createRadialGradient(h.x, h.y + 8, 4, h.x, h.y + 14, HOLE_R);
+        moundGrad.addColorStop(0, '#1a0f08');
+        moundGrad.addColorStop(1, '#4a2e1a');
+        ctx.fillStyle = moundGrad;
         ctx.beginPath();
         ctx.ellipse(h.x, h.y + 14, HOLE_R, HOLE_R * 0.5, 0, 0, Math.PI * 2);
         ctx.fill();
@@ -122,10 +126,7 @@ function createWhackAMoleLevel(api) {
         if (i === activeHole) {
           const s = popScale;
           if (isBomb) {
-            ctx.fillStyle = bombFlash > 0 ? '#ff5c5c' : '#1a1a22';
-            ctx.beginPath();
-            ctx.arc(h.x, h.y + 14 - 30 * s, HOLE_R * 0.5, 0, Math.PI * 2);
-            ctx.fill();
+            FX.sphere(ctx, h.x, h.y + 14 - 30 * s, HOLE_R * 0.5, bombFlash > 0 ? '#ff5c5c' : '#2a2a34');
             ctx.fillStyle = '#3a3a44';
             ctx.fillRect(h.x - 3, h.y - 20 - 30 * s, 6, 8);
             ctx.strokeStyle = '#ff9a4f';
@@ -139,10 +140,12 @@ function createWhackAMoleLevel(api) {
             ctx.arc(h.x + 6, h.y - 28 - 30 * s, 2, 0, Math.PI * 2);
             ctx.fill();
           } else {
-            ctx.fillStyle = hitFlash > 0 ? '#6bff6b' : '#8a5a3a';
+            ctx.save();
             ctx.beginPath();
             ctx.ellipse(h.x, h.y + 14 - 30 * s, HOLE_R * 0.6, HOLE_R * 0.7 * s, 0, 0, Math.PI * 2);
-            ctx.fill();
+            ctx.clip();
+            FX.sphere(ctx, h.x, h.y + 14 - 30 * s, HOLE_R * 0.65, hitFlash > 0 ? '#6bff6b' : '#a9743f');
+            ctx.restore();
             ctx.fillStyle = '#1a1a1a';
             ctx.beginPath();
             ctx.arc(h.x - 10, h.y - 6 - 30 * s, 3, 0, Math.PI * 2);

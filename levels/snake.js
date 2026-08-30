@@ -98,25 +98,16 @@ function createSnakeLevel(api) {
         ctx.arc(fcx, fcy, CELL / 2, 0, Math.PI * 2 * (goldenTimer / GOLDEN_LIFE));
         ctx.stroke();
       }
-      ctx.fillStyle = golden ? '#ffd24f' : '#ff4fa3';
-      ctx.beginPath();
-      ctx.arc(fcx, fcy, CELL / 2 - 3, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.35)';
-      ctx.beginPath();
-      ctx.arc(fcx - 2, fcy - 2, 2, 0, Math.PI * 2);
-      ctx.fill();
+      FX.sphere(ctx, fcx, fcy, CELL / 2 - 3, golden ? '#ffd24f' : '#ff4fa3');
 
       for (let i = snake.length - 1; i > 0; i--) {
         const s = snake[i];
-        ctx.fillStyle = i % 2 === 0 ? '#3ab8a8' : '#4fe3d0';
-        ctx.fillRect(s.x * CELL + 1, s.y * CELL + 1, CELL - 2, CELL - 2);
+        FX.bevelBlock(ctx, s.x * CELL + 1, s.y * CELL + 1, CELL - 2, CELL - 2, i % 2 === 0 ? '#3ab8a8' : '#4fe3d0', 3);
       }
 
       const head = snake[0];
       const hx = head.x * CELL, hy = head.y * CELL;
-      ctx.fillStyle = '#6bff6b';
-      ctx.fillRect(hx + 1, hy + 1, CELL - 2, CELL - 2);
+      FX.bevelBlock(ctx, hx + 1, hy + 1, CELL - 2, CELL - 2, '#6bff6b', 4);
       ctx.fillStyle = '#0f2a0f';
       const eo = 5;
       const ex1 = hx + CELL / 2 + (dir.y !== 0 ? -eo : dir.x * eo * 0.4);

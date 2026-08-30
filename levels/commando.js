@@ -225,16 +225,12 @@ function createCommandoLevel(api) {
       ctx.save();
       ctx.translate(-camX, 0);
 
-      ctx.fillStyle = '#2a3a24';
-      ctx.fillRect(0, GROUND_Y, WORLD_W, H - GROUND_Y);
+      FX.gradientRect(ctx, 0, GROUND_Y, WORLD_W, H - GROUND_Y, '#3a4e30', '#1a2416');
       ctx.fillStyle = '#3a4e30';
       ctx.fillRect(0, GROUND_Y, WORLD_W, 4);
 
       powerups.forEach((p) => {
-        ctx.fillStyle = '#2a2a2a';
-        ctx.fillRect(p.x, p.y, p.w, p.h);
-        ctx.fillStyle = '#ffd24f';
-        ctx.fillRect(p.x + 2, p.y + 2, p.w - 4, p.h - 4);
+        FX.bevelBlock(ctx, p.x, p.y, p.w, p.h, '#ffd24f', 2);
         ctx.fillStyle = '#2a2a2a';
         ctx.font = 'bold 9px monospace';
         ctx.textAlign = 'center';
@@ -243,8 +239,8 @@ function createCommandoLevel(api) {
       });
 
       crates.filter((c) => c.alive).forEach((c) => {
-        ctx.fillStyle = '#7a5a34';
-        ctx.fillRect(c.x, c.y, c.w, c.h);
+        FX.shadow(ctx, c.x + c.w / 2, c.y + c.h + 2, c.w / 2, 3, 0.3);
+        FX.bevelBlock(ctx, c.x, c.y, c.w, c.h, '#7a5a34', 3);
         ctx.strokeStyle = '#4a3620';
         ctx.lineWidth = 2;
         ctx.strokeRect(c.x + 2, c.y + 2, c.w - 4, c.h - 4);
@@ -267,8 +263,8 @@ function createCommandoLevel(api) {
       }
 
       grunts.filter((e) => e.alive).forEach((e) => {
-        ctx.fillStyle = '#8a3a3a';
-        ctx.fillRect(e.x, e.y + 10, e.w, e.h - 10);
+        FX.shadow(ctx, e.x + e.w / 2, e.y + e.h + 2, e.w / 2, 3, 0.3);
+        FX.bevelRect(ctx, e.x, e.y + 10, e.w, e.h - 10, '#8a3a3a', 2);
         ctx.fillStyle = '#d9b98a';
         ctx.beginPath();
         ctx.arc(e.x + e.w / 2, e.y + 6, 7, 0, Math.PI * 2);
@@ -278,16 +274,21 @@ function createCommandoLevel(api) {
       });
 
       turrets.filter((e) => e.alive).forEach((e) => {
-        ctx.fillStyle = '#4a4a52';
-        ctx.fillRect(e.x, e.y, e.w, e.h);
+        FX.shadow(ctx, e.x + e.w / 2, e.y + e.h + 2, e.w / 2, 4, 0.3);
+        FX.bevelRect(ctx, e.x, e.y, e.w, e.h, '#4a4a52', 3);
         ctx.fillStyle = '#2a2a30';
         ctx.fillRect(e.x + e.w / 2 - 3, e.y - 10, 16, 6);
       });
 
       choppers.filter((e) => e.alive).forEach((e) => {
-        ctx.fillStyle = '#3a3a44';
+        const chx = e.x + e.w / 2, chy = e.y + e.h / 2;
+        FX.shadow(ctx, chx, GROUND_Y, e.w / 2, 6, 0.2);
+        const chopGrad = ctx.createLinearGradient(chx, e.y, chx, e.y + e.h);
+        chopGrad.addColorStop(0, FX.shade('#3a3a44', 35));
+        chopGrad.addColorStop(1, FX.shade('#3a3a44', -25));
+        ctx.fillStyle = chopGrad;
         ctx.beginPath();
-        ctx.ellipse(e.x + e.w / 2, e.y + e.h / 2, e.w / 2, e.h / 2, 0, 0, Math.PI * 2);
+        ctx.ellipse(chx, chy, e.w / 2, e.h / 2, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = 'rgba(255,255,255,0.5)';
         ctx.fillRect(e.x - 10, e.y + e.h / 2 - 1, e.w + 20, 2);
@@ -306,8 +307,9 @@ function createCommandoLevel(api) {
       });
 
       const flip = player.facing.dx < 0;
-      ctx.fillStyle = (player.hitFlash > 0 && Math.floor(player.hitFlash * 20) % 2 === 0) ? '#ff5c5c' : '#2a5a7a';
-      ctx.fillRect(player.x, player.y + 12, player.w, player.h - 12);
+      FX.shadow(ctx, player.x + player.w / 2, player.y + player.h + 3, player.w / 2, 3, 0.3);
+      const playerBody = (player.hitFlash > 0 && Math.floor(player.hitFlash * 20) % 2 === 0) ? '#ff5c5c' : '#2a5a7a';
+      FX.bevelRect(ctx, player.x, player.y + 12, player.w, player.h - 12, playerBody, 2);
       ctx.fillStyle = '#d9b98a';
       ctx.beginPath();
       ctx.arc(player.x + player.w / 2, player.y + 8, 8, 0, Math.PI * 2);

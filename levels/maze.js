@@ -214,30 +214,23 @@ function createMazeLevel(api) {
       ctx.fillStyle = '#050510';
       ctx.fillRect(0, 0, W, H);
 
-      ctx.fillStyle = '#2a2f6d';
       for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
-          if (grid[r][c] === 1) ctx.fillRect(OX + c * CELL, OY + r * CELL, CELL, CELL);
+          if (grid[r][c] === 1) FX.bevelBlock(ctx, OX + c * CELL, OY + r * CELL, CELL, CELL, '#2a2f6d', 2);
         }
       }
 
-      ctx.fillStyle = '#ffd24f';
       dots.forEach((k) => {
         const [c, r] = k.split(',').map(Number);
         const p = cellToPx(c, r);
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
-        ctx.fill();
+        FX.sphere(ctx, p.x, p.y, 3, '#ffd24f');
       });
 
       const pelletPulse = 6 + Math.sin(mouthPhase * 1.5) * 2;
-      ctx.fillStyle = '#fff5b0';
       powerPellets.forEach((k) => {
         const [c, r] = k.split(',').map(Number);
         const p = cellToPx(c, r);
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, pelletPulse, 0, Math.PI * 2);
-        ctx.fill();
+        FX.sphere(ctx, p.x, p.y, pelletPulse, '#fff5b0');
       });
 
       ghosts.forEach((g) => {
@@ -245,7 +238,12 @@ function createMazeLevel(api) {
         const pos = pixelPos(g);
         const frightened = frightTimer > 0;
         const flashing = frightened && frightTimer < 2 && Math.floor(frightTimer * 6) % 2 === 0;
-        ctx.fillStyle = flashing ? '#fff' : frightened ? '#2a3fd0' : g.color;
+        const ghostColor = flashing ? '#ffffff' : frightened ? '#2a3fd0' : g.color;
+        FX.shadow(ctx, pos.x, pos.y + CELL * 0.4, CELL * 0.35, CELL * 0.12, 0.3);
+        const ghostGrad = ctx.createLinearGradient(pos.x, pos.y - CELL * 0.38, pos.x, pos.y + CELL * 0.32);
+        ghostGrad.addColorStop(0, FX.shade(ghostColor, 35));
+        ghostGrad.addColorStop(1, FX.shade(ghostColor, -20));
+        ctx.fillStyle = ghostGrad;
         ctx.beginPath();
         ctx.arc(pos.x, pos.y, CELL * 0.38, Math.PI, 0);
         ctx.lineTo(pos.x + CELL * 0.38, pos.y + CELL * 0.32);
@@ -269,7 +267,14 @@ function createMazeLevel(api) {
       else if (player.dir.dx === -1) angle = Math.PI;
       else if (player.dir.dy === 1) angle = Math.PI / 2;
       else if (player.dir.dy === -1) angle = -Math.PI / 2;
-      ctx.fillStyle = '#ffd24f';
+      FX.shadow(ctx, playerPos.x, playerPos.y + CELL * 0.42, CELL * 0.36, CELL * 0.14, 0.3);
+      const pacGrad = ctx.createRadialGradient(
+        playerPos.x - CELL * 0.15, playerPos.y - CELL * 0.15, CELL * 0.05,
+        playerPos.x, playerPos.y, CELL * 0.45
+      );
+      pacGrad.addColorStop(0, FX.shade('#ffd24f', 45));
+      pacGrad.addColorStop(1, FX.shade('#ffd24f', -20));
+      ctx.fillStyle = pacGrad;
       ctx.beginPath();
       ctx.moveTo(playerPos.x, playerPos.y);
       ctx.arc(playerPos.x, playerPos.y, CELL * 0.42, angle + mouthOpen * Math.PI, angle + (2 - mouthOpen) * Math.PI);

@@ -227,7 +227,11 @@ function createShooterLevel(api) {
       ctx.fillRect(0, 0, W, H);
 
       const shipColor = hitFlash > 0 && Math.floor(hitFlash * 20) % 2 === 0 ? '#ff5c5c' : '#4fe3d0';
-      ctx.fillStyle = shipColor;
+      FX.shadow(ctx, player.x + player.w / 2, player.y + player.h + 4, player.w / 2, 4, 0.3);
+      const shipGrad = ctx.createLinearGradient(player.x, player.y - 8, player.x, player.y + player.h);
+      shipGrad.addColorStop(0, FX.shade(shipColor, 45));
+      shipGrad.addColorStop(1, FX.shade(shipColor, -20));
+      ctx.fillStyle = shipGrad;
       ctx.beginPath();
       ctx.moveTo(player.x + player.w / 2, player.y - 8);
       ctx.lineTo(player.x + player.w - 3, player.y + player.h);
@@ -241,8 +245,14 @@ function createShooterLevel(api) {
       ctx.arc(player.x + player.w / 2, player.y + 6, 3, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.fillStyle = '#6bff6b';
       bunkers.forEach((bk) => {
+        ctx.fillStyle = '#1a4a2a';
+        bk.blocks.forEach((row, r) => {
+          row.forEach((alive, c) => {
+            if (alive) ctx.fillRect(bk.x + c * BLOCK + 2, bk.y + r * BLOCK + 2, BLOCK, BLOCK);
+          });
+        });
+        ctx.fillStyle = '#6bff6b';
         bk.blocks.forEach((row, r) => {
           row.forEach((alive, c) => {
             if (alive) ctx.fillRect(bk.x + c * BLOCK, bk.y + r * BLOCK, BLOCK, BLOCK);
@@ -253,9 +263,13 @@ function createShooterLevel(api) {
       enemies.filter((e) => e.alive).forEach((e) => drawInvader(ctx, e));
 
       if (ufo) {
-        ctx.fillStyle = '#ff4fa3';
+        const ucx = ufo.x + ufo.w / 2, ucy = ufo.y + ufo.h / 2;
+        const ufoGrad = ctx.createLinearGradient(ucx, ufo.y, ucx, ufo.y + ufo.h);
+        ufoGrad.addColorStop(0, FX.shade('#ff4fa3', 35));
+        ufoGrad.addColorStop(1, FX.shade('#ff4fa3', -25));
+        ctx.fillStyle = ufoGrad;
         ctx.beginPath();
-        ctx.ellipse(ufo.x + ufo.w / 2, ufo.y + ufo.h / 2, ufo.w / 2, ufo.h / 2, 0, 0, Math.PI * 2);
+        ctx.ellipse(ucx, ucy, ufo.w / 2, ufo.h / 2, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = '#ffe3ee';
         ctx.beginPath();
