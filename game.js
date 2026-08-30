@@ -137,6 +137,10 @@ const Game = (() => {
     if ((e.key === 'p' || e.key === 'P') && (state.mode === 'playing' || state.mode === 'pause')) {
       togglePause();
     }
+    if (e.key === 'Escape' && state.mode === 'pause') {
+      sfx('select');
+      quitToMenu();
+    }
     if (e.key === 'm' || e.key === 'M') {
       toggleMute();
     }
@@ -223,6 +227,14 @@ const Game = (() => {
       state.mode = 'playing';
       hideAllScreens();
     }
+  }
+
+  function quitToMenu() {
+    setHighScoreIfBeaten(state.score);
+    if (titleHigh) titleHigh.textContent = `HIGH SCORE ${getHighScore()}`;
+    state.levelInstance = null;
+    state.mode = 'title';
+    showScreen('title');
   }
 
   function addScore(n) {
