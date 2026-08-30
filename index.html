@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GENX ARCADE</title>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
   <div id="wrap">
@@ -24,6 +24,7 @@
         <p class="sub">twelve classics. one quarter.</p>
         <div class="levelist" id="level-list"></div>
         <p class="prompt blink">PRESS ENTER TO START</p>
+        <button class="menu-btn" data-key="Enter">START</button>
         <p id="title-highscore" class="sub"></p>
         <p class="controls">UP/DOWN choose game &middot; ENTER start &middot; M mute</p>
       </div>
@@ -32,24 +33,53 @@
         <h2 id="lc-title">LEVEL CLEAR</h2>
         <p id="lc-score"></p>
         <p class="prompt blink">PRESS ENTER TO CONTINUE</p>
+        <button class="menu-btn" data-key="Enter">CONTINUE</button>
       </div>
 
       <div id="screen-gameover" class="screen hidden">
         <h2 class="danger">GAME OVER</h2>
         <p id="go-score"></p>
         <p class="prompt blink">PRESS ENTER TO RETRY</p>
+        <button class="menu-btn" data-key="Enter">RETRY</button>
       </div>
 
       <div id="screen-win" class="screen hidden">
         <h2 class="win">ARCADE CLEARED!</h2>
         <p id="win-score"></p>
         <p class="prompt blink">PRESS ENTER FOR NEW GAME</p>
+        <button class="menu-btn" data-key="Enter">PLAY AGAIN</button>
       </div>
 
       <div id="screen-pause" class="screen hidden">
         <h2>PAUSED</h2>
         <p class="prompt blink">PRESS P TO RESUME</p>
         <p class="controls">PRESS ESC TO QUIT TO MENU</p>
+        <button class="menu-btn" data-key="p">RESUME</button>
+        <button class="menu-btn secondary" data-key="Escape">QUIT TO MENU</button>
+      </div>
+
+      <div id="touch-controls">
+        <div id="touch-dpad" class="touch-group">
+          <button class="touch-btn dpad-up" data-key="ArrowUp" aria-label="Up">&#9650;</button>
+          <button class="touch-btn dpad-left" data-key="ArrowLeft" aria-label="Left">&#9664;</button>
+          <button class="touch-btn dpad-right" data-key="ArrowRight" aria-label="Right">&#9654;</button>
+          <button class="touch-btn dpad-down" data-key="ArrowDown" aria-label="Down">&#9660;</button>
+        </div>
+        <div id="touch-numpad" class="touch-group hidden">
+          <button class="touch-btn num-btn" data-key="1">1</button>
+          <button class="touch-btn num-btn" data-key="2">2</button>
+          <button class="touch-btn num-btn" data-key="3">3</button>
+          <button class="touch-btn num-btn" data-key="4">4</button>
+          <button class="touch-btn num-btn" data-key="5">5</button>
+          <button class="touch-btn num-btn" data-key="6">6</button>
+          <button class="touch-btn num-btn" data-key="7">7</button>
+          <button class="touch-btn num-btn" data-key="8">8</button>
+          <button class="touch-btn num-btn" data-key="9">9</button>
+        </div>
+        <div id="touch-side" class="touch-group">
+          <button class="touch-btn pause-btn" data-key="p" aria-label="Pause">II</button>
+          <button class="touch-btn action-btn" data-key=" " aria-label="Action">&#9679;</button>
+        </div>
       </div>
     </div>
 

@@ -20,6 +20,8 @@ const Game = (() => {
   const winScore = document.getElementById('win-score');
   const titleHigh = document.getElementById('title-highscore');
   const levelListEl = document.getElementById('level-list');
+  const touchDpad = document.getElementById('touch-dpad');
+  const touchNumpad = document.getElementById('touch-numpad');
 
   const START_LIVES = 3;
   const HS_KEY = 'genxArcadeHighScore';
@@ -202,6 +204,9 @@ const Game = (() => {
     state.levelInstance = def.factory(api);
     state.levelInstance.init();
     updateHud();
+    const usesNumpad = def.tag === 'reflex';
+    if (touchDpad) touchDpad.classList.toggle('hidden', usesNumpad);
+    if (touchNumpad) touchNumpad.classList.toggle('hidden', !usesNumpad);
   }
 
   function advanceLevel() {
@@ -318,10 +323,33 @@ const Game = (() => {
     requestAnimationFrame(loop);
   }
 
+  // On-screen buttons (touch + mouse) dispatch the exact same synthetic
+  // KeyboardEvents a real keyboard would send, so they flow through the one
+  // keydown/keyup listener above — no separate input path to keep in sync.
+  function bindVirtualKey(el) {
+    const key = el.dataset.key;
+    const press = (e) => {
+      e.preventDefault();
+      el.classList.add('pressed');
+      window.dispatchEvent(new KeyboardEvent('keydown', { key }));
+    };
+    const release = (e) => {
+      if (e) e.preventDefault();
+      el.classList.remove('pressed');
+      window.dispatchEvent(new KeyboardEvent('keyup', { key }));
+    };
+    el.addEventListener('pointerdown', press);
+    el.addEventListener('pointerup', release);
+    el.addEventListener('pointerleave', release);
+    el.addEventListener('pointercancel', release);
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
   function boot() {
     updateSoundHud();
     if (titleHigh) titleHigh.textContent = `HIGH SCORE ${getHighScore()}`;
     renderLevelList();
+    document.querySelectorAll('[data-key]').forEach(bindVirtualKey);
     showScreen('title');
     requestAnimationFrame(loop);
   }
