@@ -169,17 +169,16 @@ body {
 .menu-btn.secondary:active { box-shadow: 0 1px 0 #8a2a2a; }
 
 #touch-controls {
-  position: absolute;
-  inset: 0;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
-  padding: 12px;
-  pointer-events: none;
-  z-index: 5;
+  gap: 12px;
+  background: var(--panel);
+  border: 2px solid var(--line);
+  border-radius: 4px;
+  padding: 12px 20px;
 }
 
-.touch-group { pointer-events: none; }
 #touch-dpad.hidden, #touch-numpad.hidden { display: none; }
 
 #touch-dpad {
@@ -208,11 +207,10 @@ body {
 }
 
 .touch-btn {
-  pointer-events: auto;
   font-family: var(--display);
   font-size: 14px;
   color: var(--text);
-  background: rgba(30, 34, 48, 0.55);
+  background: rgba(58, 64, 84, 0.8);
   border: 2px solid rgba(255, 255, 255, 0.18);
   border-radius: 8px;
   display: flex;
@@ -249,11 +247,6 @@ body {
   border-color: rgba(107, 255, 107, 0.4);
 }
 .action-btn:active { background: rgba(107, 255, 107, 0.4); }
-
-@media (min-width: 820px) and (pointer: fine) {
-  #touch-controls { opacity: 0.45; transition: opacity 0.2s; }
-  #touch-controls:hover { opacity: 0.95; }
-}
 
 #footer {
   text-align: center;
