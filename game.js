@@ -320,6 +320,10 @@ const Game = (() => {
     }
 
     if (shaking) ctx.restore();
+
+    FX.vignette(ctx, W, H, 0.4);
+    FX.scanlines(ctx, W, H, 0.045);
+
     requestAnimationFrame(loop);
   }
 

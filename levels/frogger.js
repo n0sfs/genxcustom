@@ -47,7 +47,7 @@ function createFroggerLevel(api) {
   }
 
   const TIME_LIMIT = 22;
-  let frog, prevKeys, hopTimer, roads, rivers, goalsFilled, bestRow, timeLeft, fly, flyTimer, flyLife;
+  let frog, prevKeys, hopTimer, roads, rivers, goalsFilled, bestRow, timeLeft, fly, flyTimer, flyLife, waterTime;
 
   function drawFrog(ctx, f) {
     const cx = f.x + f.w / 2, cy = f.y + f.h / 2;
@@ -57,33 +57,74 @@ function createFroggerLevel(api) {
     ctx.ellipse(f.x + 3, f.y + f.h - 3, 4, 3, 0, 0, Math.PI * 2);
     ctx.ellipse(f.x + f.w - 3, f.y + f.h - 3, 4, 3, 0, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = 'rgba(10,30,10,0.5)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
     ctx.fillStyle = '#3aa33a';
     ctx.beginPath();
     ctx.ellipse(cx, cy + 2, f.w / 2, f.h / 2 - 1, 0, 0, Math.PI * 2);
     ctx.fill();
     const frogGrad = ctx.createRadialGradient(cx - 4, cy - 4, 2, cx, cy, f.w / 2);
     frogGrad.addColorStop(0, FX.shade('#5fd45f', 30));
-    frogGrad.addColorStop(1, '#5fd45f');
+    frogGrad.addColorStop(0.7, '#5fd45f');
+    frogGrad.addColorStop(1, FX.shade('#5fd45f', -18));
     ctx.fillStyle = frogGrad;
     ctx.beginPath();
     ctx.ellipse(cx, cy, f.w / 2 - 1, f.h / 2 - 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(10,30,10,0.55)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    // pale belly highlight patch for extra roundness
+    ctx.fillStyle = 'rgba(210,255,190,0.35)';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + 5, f.w / 2 - 6, f.h / 2 - 8, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#5fd45f';
     ctx.beginPath();
     ctx.arc(cx - 6, f.y + 4, 4, 0, Math.PI * 2);
     ctx.arc(cx + 6, f.y + 4, 4, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = 'rgba(10,30,10,0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx - 6, f.y + 4, 4, 0, Math.PI * 2);
+    ctx.arc(cx + 6, f.y + 4, 4, 0, Math.PI * 2);
+    ctx.stroke();
     ctx.fillStyle = '#0f2a0f';
     ctx.beginPath();
     ctx.arc(cx - 6, f.y + 4, 1.6, 0, Math.PI * 2);
     ctx.arc(cx + 6, f.y + 4, 1.6, 0, Math.PI * 2);
     ctx.fill();
+    // eye-shine specular glint
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.beginPath();
+    ctx.arc(cx - 7, f.y + 2.5, 0.9, 0, Math.PI * 2);
+    ctx.arc(cx + 5, f.y + 2.5, 0.9, 0, Math.PI * 2);
+    ctx.fill();
   }
 
-  function drawCar(ctx, c) {
+  function drawCar(ctx, c, dir) {
     FX.bevelBlock(ctx, c.x, c.y + 2, c.w, c.h - 4, '#ff4fa3', 3);
-    ctx.fillStyle = '#1a2430';
+    FX.roundRectPath(ctx, c.x, c.y + 2, c.w, c.h - 4, 3);
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // glassy windshield with a lit-glass gradient + highlight streak
+    const glassGrad = ctx.createLinearGradient(c.x, c.y, c.x, c.y + c.h);
+    glassGrad.addColorStop(0, '#6a8aa8');
+    glassGrad.addColorStop(0.45, '#1a2430');
+    glassGrad.addColorStop(1, '#0a1218');
+    ctx.fillStyle = glassGrad;
     ctx.fillRect(c.x + c.w * 0.2, c.y + 3, c.w * 0.6, c.h - 6);
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.fillRect(c.x + c.w * 0.24, c.y + 4, c.w * 0.1, c.h - 8);
+
+    // chrome trim on the leading edge (direction of travel)
+    const frontX = dir >= 0 ? c.x + c.w - 3 : c.x;
+    FX.chrome(ctx, frontX, c.y + 2, 3, c.h - 4);
+
     ctx.fillStyle = '#ffe38a';
     ctx.fillRect(c.x, c.y + 1, 3, 2);
     ctx.fillRect(c.x + c.w - 3, c.y + 1, 3, 2);
@@ -102,6 +143,7 @@ function createFroggerLevel(api) {
       fly = null;
       flyTimer = 3 + Math.random() * 4;
       flyLife = 0;
+      waterTime = 0;
     },
 
     update(dt) {
@@ -209,40 +251,78 @@ function createFroggerLevel(api) {
     },
 
     draw(ctx) {
-      ctx.fillStyle = '#0a3d1a';
-      ctx.fillRect(0, 0, W, GOAL_ROW * CELL + CELL);
+      waterTime += 1 / 60;
 
-      ctx.fillStyle = '#1e6b3a';
-      ctx.fillRect(0, GOAL_ROW * CELL, W, CELL);
-      ctx.fillStyle = '#4fe3d0';
+      FX.gradientRect(ctx, 0, 0, W, GOAL_ROW * CELL + CELL, '#0f4a20', '#08260f');
+
+      FX.gradientRect(ctx, 0, GOAL_ROW * CELL, W, CELL, '#25804a', '#164e2c');
       GOAL_COLS.forEach((gc, i) => {
-        ctx.fillStyle = goalsFilled[i] ? '#6bff6b' : '#1a4a8a';
+        const gcx = gc * CELL + CELL / 2, gcy = GOAL_ROW * CELL + CELL / 2;
+        FX.shadow(ctx, gcx, gcy + 12, 15, 3, 0.2);
+        const padGrad = ctx.createRadialGradient(gcx - 4, gcy - 4, 2, gcx, gcy, 15);
+        if (goalsFilled[i]) {
+          padGrad.addColorStop(0, '#c8ffc8'); padGrad.addColorStop(1, '#3fae3f');
+        } else {
+          padGrad.addColorStop(0, '#4a7ecf'); padGrad.addColorStop(1, '#123a6a');
+        }
+        ctx.fillStyle = padGrad;
         ctx.beginPath();
-        ctx.arc(gc * CELL + CELL / 2, GOAL_ROW * CELL + CELL / 2, 15, 0, Math.PI * 2);
+        ctx.arc(gcx, gcy, 15, 0, Math.PI * 2);
         ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
       });
 
       FX.gradientRect(ctx, 0, 2 * CELL, W, 4 * CELL, '#2a6aba', '#123a6a');
+      // water-ripple texture: a handful of drifting highlight arcs, cheap per frame
+      ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+      ctx.lineWidth = 1;
+      for (let ry = 2; ry < 6; ry++) {
+        const rowY = ry * CELL;
+        for (let i = 0; i < 3; i++) {
+          const phase = waterTime * 22 + i * 47 + ry * 31;
+          const rx = (phase % (W + 60)) - 30;
+          ctx.beginPath();
+          ctx.moveTo(rx, rowY + 10 + i * 9);
+          ctx.quadraticCurveTo(rx + 15, rowY + 6 + i * 9, rx + 30, rowY + 10 + i * 9);
+          ctx.stroke();
+        }
+      }
       rivers.forEach((lane) => {
         lane.items.forEach((l) => {
           FX.shadow(ctx, l.x + l.w / 2, l.y + l.h - 2, l.w / 2, 4, 0.2);
           FX.bevelBlock(ctx, l.x, l.y, l.w, l.h, '#8a5a2a', 3);
+          ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+          ctx.lineWidth = 1;
+          FX.roundRectPath(ctx, l.x, l.y, l.w, l.h, 3);
+          ctx.stroke();
           ctx.fillStyle = 'rgba(0,0,0,0.15)';
           for (let gx = l.x + 6; gx < l.x + l.w - 4; gx += 10) ctx.fillRect(gx, l.y + 3, 2, l.h - 6);
         });
       });
 
-      ctx.fillStyle = '#2a7d3a';
-      ctx.fillRect(0, 6 * CELL, W, CELL);
+      FX.gradientRect(ctx, 0, 6 * CELL, W, CELL, '#357d3a', '#1c4a20');
 
-      ctx.fillStyle = '#333';
-      ctx.fillRect(0, 7 * CELL, W, 4 * CELL);
+      FX.gradientRect(ctx, 0, 7 * CELL, W, 4 * CELL, '#3a3a3a', '#1c1c1c');
+      // dashed lane-divider markings between the four road rows
+      ctx.strokeStyle = 'rgba(255,220,120,0.35)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([14, 10]);
+      for (let ry = 8; ry <= 10; ry++) {
+        ctx.beginPath();
+        ctx.moveTo(0, ry * CELL);
+        ctx.lineTo(W, ry * CELL);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
       roads.forEach((lane) => {
-        lane.items.forEach((c) => drawCar(ctx, c));
+        lane.items.forEach((c) => drawCar(ctx, c, lane.dir));
       });
 
-      ctx.fillStyle = '#2a7d3a';
-      ctx.fillRect(0, 11 * CELL, W, CELL);
+      FX.gradientRect(ctx, 0, 11 * CELL, W, CELL, '#357d3a', '#1c4a20');
+      ctx.fillStyle = 'rgba(0,0,0,0.15)';
+      for (let tx = 6; tx < W; tx += 22) ctx.fillRect(tx, 11 * CELL + CELL - 5, 2, 4);
 
       if (fly) {
         const fx = fly.col * CELL + CELL / 2, fy = fly.row * CELL + CELL / 2;

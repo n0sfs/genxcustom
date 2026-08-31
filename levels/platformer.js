@@ -41,25 +41,67 @@ function createPlatformerLevel(api) {
     const stride = onGround && p.vx !== 0 ? Math.sin(p.animT) * 5 : 0;
     const legLift = !onGround ? 3 : 0;
     if (onGround) FX.shadow(ctx, cx, p.y + p.h + 2, p.w / 2, 3, 0.3);
-    ctx.fillStyle = '#1a3a4a';
-    ctx.fillRect(cx - 5 + stride * 0.3, p.y + 20 - legLift, 4, 8 + legLift);
-    ctx.fillRect(cx + 1 - stride * 0.3, p.y + 20 - legLift, 4, 8 + legLift);
-    ctx.fillStyle = '#4fe3d0';
+
+    // legs — subtle gradient + outline
+    const legGrad = ctx.createLinearGradient(0, p.y + 18, 0, p.y + 30);
+    legGrad.addColorStop(0, '#2a5a6f');
+    legGrad.addColorStop(1, '#12262f');
+    ctx.fillStyle = legGrad;
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 1;
+    const leg1x = cx - 5 + stride * 0.3, leg2x = cx + 1 - stride * 0.3, legY = p.y + 20 - legLift, legH = 8 + legLift;
+    ctx.fillRect(leg1x, legY, 4, legH);
+    ctx.strokeRect(leg1x, legY, 4, legH);
+    ctx.fillRect(leg2x, legY, 4, legH);
+    ctx.strokeRect(leg2x, legY, 4, legH);
+
+    // torso — gradient with a bright edge highlight and a dark belt shading band
+    const bodyGrad = ctx.createLinearGradient(p.x, p.y + 9, p.x, p.y + 22);
+    bodyGrad.addColorStop(0, '#7dffea');
+    bodyGrad.addColorStop(0.45, '#4fe3d0');
+    bodyGrad.addColorStop(1, '#297f74');
+    ctx.fillStyle = bodyGrad;
     ctx.fillRect(p.x + 2, p.y + 9, p.w - 4, 13);
-    ctx.fillStyle = '#3ab8a8';
-    ctx.fillRect(p.x + 2, p.y + 9, p.w - 4, 4);
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.fillRect(p.x + 3, p.y + 10, 2, 11);
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(p.x + 2, p.y + 19, p.w - 4, 2);
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 1.3;
+    ctx.strokeRect(p.x + 2, p.y + 9, p.w - 4, 13);
+
+    // arm
+    const armX = cx + (p.facing > 0 ? 2 : -6);
     ctx.fillStyle = '#e8b98a';
-    ctx.fillRect(cx + (p.facing > 0 ? 2 : -6), p.y + 12, 4, 7);
-    ctx.fillStyle = '#e8b98a';
+    ctx.fillRect(armX, p.y + 12, 4, 7);
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(armX, p.y + 12, 4, 7);
+
+    // head — lit sphere with outline
+    FX.sphere(ctx, cx, p.y + 6, 6, '#e8b98a');
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 1.3;
     ctx.beginPath();
     ctx.arc(cx, p.y + 6, 6, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.stroke();
+
+    // hair with outline + tiny sheen
     ctx.fillStyle = '#2a2a2a';
     ctx.beginPath();
     ctx.arc(cx, p.y + 3, 6, Math.PI, 0);
     ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.fillRect(cx - 4, p.y, 3, 2);
+
+    // eye + specular glint
     ctx.fillStyle = '#1a1a1a';
     ctx.fillRect(cx + p.facing * 2, p.y + 5, 2, 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillRect(cx + p.facing * 2 + (p.facing > 0 ? 0.2 : 0.9), p.y + 5.2, 0.7, 0.7);
   }
 
   function resetPlayer() {
@@ -178,7 +220,10 @@ function createPlatformerLevel(api) {
       ctx.fillStyle = '#0c1424';
       ctx.fillRect(0, 0, W, H);
 
-      ctx.fillStyle = '#12345a';
+      const mtnGrad = ctx.createLinearGradient(0, H - 120, 0, H);
+      mtnGrad.addColorStop(0, '#2a5f8a');
+      mtnGrad.addColorStop(1, '#0e2438');
+      ctx.fillStyle = mtnGrad;
       for (let i = 0; i < 6; i++) {
         const px = (i * 220 - camX * 0.3) % (W + 200) - 100;
         ctx.beginPath();
@@ -186,6 +231,13 @@ function createPlatformerLevel(api) {
         ctx.lineTo(px + 60, H - 120);
         ctx.lineTo(px + 120, H);
         ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.08)';
+        ctx.beginPath();
+        ctx.moveTo(px + 60, H - 120);
+        ctx.lineTo(px + 72, H - 96);
+        ctx.lineTo(px + 48, H - 96);
+        ctx.fill();
+        ctx.fillStyle = mtnGrad;
       }
 
       ctx.save();
@@ -194,8 +246,30 @@ function createPlatformerLevel(api) {
       platforms.forEach((p) => {
         FX.shadow(ctx, p.x + p.w / 2, p.y + p.h + 6, p.w / 2, 6, 0.3);
         FX.bevelRect(ctx, p.x, p.y, p.w, p.h, '#3a2f5a', 3);
-        ctx.fillStyle = '#6bff6b';
+
+        // grassy top with a lit gradient + rim-light edge
+        const grassGrad = ctx.createLinearGradient(p.x, p.y, p.x, p.y + 4);
+        grassGrad.addColorStop(0, '#a8ff9a');
+        grassGrad.addColorStop(1, '#4fcf4f');
+        ctx.fillStyle = grassGrad;
         ctx.fillRect(p.x, p.y, p.w, 4);
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.fillRect(p.x, p.y, p.w, 1);
+
+        // faint brick-coursing texture on the dirt body (cheap, few lines)
+        ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+        ctx.lineWidth = 1;
+        for (let lx = p.x + 14; lx < p.x + p.w - 2; lx += 26) {
+          ctx.beginPath();
+          ctx.moveTo(lx, p.y + 6);
+          ctx.lineTo(lx, p.y + p.h - 4);
+          ctx.stroke();
+        }
+        ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+        ctx.beginPath();
+        ctx.moveTo(p.x + 2, p.y + p.h * 0.55);
+        ctx.lineTo(p.x + p.w - 2, p.y + p.h * 0.55);
+        ctx.stroke();
       });
 
       coinList.forEach((c) => {
@@ -205,14 +279,21 @@ function createPlatformerLevel(api) {
 
       enemies.filter((e) => e.alive).forEach((e) => {
         const cx = e.x + e.w / 2, cy = e.y + e.h / 2;
+        FX.shadow(ctx, cx, e.y + e.h + 2, e.w / 2, 3, 0.3);
         ctx.fillStyle = '#c93a7a';
         ctx.beginPath();
         ctx.ellipse(cx, cy + 2, e.w / 2, e.h / 2 - 1, 0, 0, Math.PI);
         ctx.fill();
-        ctx.fillStyle = '#ff4fa3';
+        const bodyGrad = ctx.createRadialGradient(cx - 3, cy - 3, 1, cx, cy, e.w / 2 + 3);
+        bodyGrad.addColorStop(0, FX.shade('#ff4fa3', 40));
+        bodyGrad.addColorStop(1, FX.shade('#ff4fa3', -15));
+        ctx.fillStyle = bodyGrad;
         ctx.beginPath();
         ctx.ellipse(cx, cy, e.w / 2, e.h / 2, 0, 0, Math.PI * 2);
         ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = 1.3;
+        ctx.stroke();
         ctx.fillStyle = '#2a1020';
         ctx.fillRect(e.x + 2, e.y + e.h - 4, 5, 4);
         ctx.fillRect(e.x + e.w - 7, e.y + e.h - 4, 5, 4);
@@ -226,12 +307,26 @@ function createPlatformerLevel(api) {
         ctx.arc(cx - 4 + e.dir, cy - 2, 1.3, 0, Math.PI * 2);
         ctx.arc(cx + 4 + e.dir, cy - 2, 1.3, 0, Math.PI * 2);
         ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.beginPath();
+        ctx.arc(cx - 4.6 + e.dir, cy - 2.8, 0.6, 0, Math.PI * 2);
+        ctx.arc(cx + 3.4 + e.dir, cy - 2.8, 0.6, 0, Math.PI * 2);
+        ctx.fill();
       });
 
-      ctx.fillStyle = '#e8ecff';
+      const poleGrad = ctx.createLinearGradient(flag.x, 0, flag.x + 3, 0);
+      poleGrad.addColorStop(0, '#ffffff');
+      poleGrad.addColorStop(1, '#a8b4d8');
+      ctx.fillStyle = poleGrad;
       ctx.fillRect(flag.x, flag.y, 3, flag.h);
-      ctx.fillStyle = '#4fe3d0';
+      const clothGrad = ctx.createLinearGradient(flag.x + 3, flag.y, flag.x + 27, flag.y + 16);
+      clothGrad.addColorStop(0, '#7dffea');
+      clothGrad.addColorStop(1, '#3ab8a8');
+      ctx.fillStyle = clothGrad;
       ctx.fillRect(flag.x + 3, flag.y, 24, 16);
+      ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(flag.x + 3, flag.y, 24, 16);
 
       drawHero(ctx, player);
 

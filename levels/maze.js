@@ -216,7 +216,16 @@ function createMazeLevel(api) {
 
       for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
-          if (grid[r][c] === 1) FX.bevelBlock(ctx, OX + c * CELL, OY + r * CELL, CELL, CELL, '#2a2f6d', 2);
+          if (grid[r][c] === 1) {
+            const bx = OX + c * CELL, by = OY + r * CELL;
+            FX.bevelBlock(ctx, bx, by, CELL, CELL, '#2a2f6d', 2);
+            // faint panel-line detail so wall blocks read as machined metal panels
+            ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(bx + 4.5, by + 4.5, CELL - 9, CELL - 9);
+            ctx.fillStyle = 'rgba(0,0,0,0.15)';
+            ctx.fillRect(bx + CELL / 2 - 1, by + 3, 2, CELL - 6);
+          }
         }
       }
 
@@ -240,23 +249,62 @@ function createMazeLevel(api) {
         const flashing = frightened && frightTimer < 2 && Math.floor(frightTimer * 6) % 2 === 0;
         const ghostColor = flashing ? '#ffffff' : frightened ? '#2a3fd0' : g.color;
         FX.shadow(ctx, pos.x, pos.y + CELL * 0.4, CELL * 0.35, CELL * 0.12, 0.3);
-        const ghostGrad = ctx.createLinearGradient(pos.x, pos.y - CELL * 0.38, pos.x, pos.y + CELL * 0.32);
+        const r = CELL * 0.38;
+        const baseY = pos.y + CELL * 0.32;
+        const ghostGrad = ctx.createLinearGradient(pos.x, pos.y - r, pos.x, baseY);
         ghostGrad.addColorStop(0, FX.shade(ghostColor, 35));
+        ghostGrad.addColorStop(0.55, ghostColor);
         ghostGrad.addColorStop(1, FX.shade(ghostColor, -20));
         ctx.fillStyle = ghostGrad;
         ctx.beginPath();
-        ctx.arc(pos.x, pos.y, CELL * 0.38, Math.PI, 0);
-        ctx.lineTo(pos.x + CELL * 0.38, pos.y + CELL * 0.32);
-        ctx.lineTo(pos.x, pos.y + CELL * 0.2);
-        ctx.lineTo(pos.x - CELL * 0.38, pos.y + CELL * 0.32);
+        ctx.arc(pos.x, pos.y, r, Math.PI, 0);
+        ctx.lineTo(pos.x + r, baseY - 2);
+        // scalloped wavy skirt hem — classic ghost-sprite silhouette
+        const scallops = 3;
+        const segW = (2 * r) / scallops;
+        for (let i = 0; i < scallops; i++) {
+          const x0 = pos.x + r - i * segW;
+          const xMid = x0 - segW / 2;
+          const x1 = x0 - segW;
+          ctx.quadraticCurveTo(xMid, baseY + 5, x1, baseY - 2);
+        }
         ctx.closePath();
         ctx.fill();
-        if (frightened) {
-          ctx.fillStyle = '#fff';
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+
+        // specular sheen on the dome
+        ctx.fillStyle = 'rgba(255,255,255,0.22)';
+        ctx.beginPath();
+        ctx.ellipse(pos.x - r * 0.35, pos.y - r * 0.4, r * 0.28, r * 0.16, -0.4, 0, Math.PI * 2);
+        ctx.fill();
+
+        // eyes: white sclera always, colored pupils track movement dir unless frightened
+        if (!flashing) {
+          const eyeOffX = 4, eyeOffY = -2;
+          ctx.fillStyle = frightened ? 'rgba(255,255,255,0.85)' : '#ffffff';
           ctx.beginPath();
-          ctx.arc(pos.x - 5, pos.y - 3, 2.2, 0, Math.PI * 2);
-          ctx.arc(pos.x + 5, pos.y - 3, 2.2, 0, Math.PI * 2);
+          ctx.arc(pos.x - eyeOffX, pos.y + eyeOffY, 2.6, 0, Math.PI * 2);
+          ctx.arc(pos.x + eyeOffX, pos.y + eyeOffY, 2.6, 0, Math.PI * 2);
           ctx.fill();
+          if (!frightened) {
+            const dx = g.dir.dx, dy = g.dir.dy;
+            ctx.fillStyle = '#1a1a2a';
+            ctx.beginPath();
+            ctx.arc(pos.x - eyeOffX + dx * 1.2, pos.y + eyeOffY + dy * 1.2, 1.3, 0, Math.PI * 2);
+            ctx.arc(pos.x + eyeOffX + dx * 1.2, pos.y + eyeOffY + dy * 1.2, 1.3, 0, Math.PI * 2);
+            ctx.fill();
+          } else {
+            ctx.strokeStyle = '#1a1a2a';
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.moveTo(pos.x - eyeOffX - 1.4, pos.y + eyeOffY - 1.4);
+            ctx.lineTo(pos.x - eyeOffX + 1.4, pos.y + eyeOffY + 1.4);
+            ctx.moveTo(pos.x + eyeOffX - 1.4, pos.y + eyeOffY - 1.4);
+            ctx.lineTo(pos.x + eyeOffX + 1.4, pos.y + eyeOffY + 1.4);
+            ctx.stroke();
+          }
         }
       });
 
@@ -279,6 +327,26 @@ function createMazeLevel(api) {
       ctx.moveTo(playerPos.x, playerPos.y);
       ctx.arc(playerPos.x, playerPos.y, CELL * 0.42, angle + mouthOpen * Math.PI, angle + (2 - mouthOpen) * Math.PI);
       ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+
+      // specular gloss + eye with a tiny glint, classic 90s-sprite highlight
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.beginPath();
+      ctx.ellipse(playerPos.x - CELL * 0.14, playerPos.y - CELL * 0.16, CELL * 0.12, CELL * 0.06, -0.4, 0, Math.PI * 2);
+      ctx.fill();
+      const eyeAngle = angle - Math.PI / 2.3;
+      const eyeX = playerPos.x + Math.cos(eyeAngle) * CELL * 0.16;
+      const eyeY = playerPos.y + Math.sin(eyeAngle) * CELL * 0.16 - CELL * 0.06;
+      ctx.fillStyle = '#3a2a10';
+      ctx.beginPath();
+      ctx.arc(eyeX, eyeY, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.beginPath();
+      ctx.arc(eyeX - 0.6, eyeY - 0.6, 0.6, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.fillStyle = '#e8ecff';

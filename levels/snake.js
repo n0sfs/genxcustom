@@ -19,6 +19,40 @@ function createSnakeLevel(api) {
     return cell;
   }
 
+  // Glossy 90s-mascot style body segment: gradient fill, mid-band shading
+  // line to suggest a scale/joint, a soft specular glint, and a crisp dark
+  // silhouette outline so the snake pops off the background.
+  function drawSegment(ctx, x, y, size, color, radius) {
+    FX.roundRectPath(ctx, x, y, size, size, radius);
+    const grad = ctx.createLinearGradient(x, y, x, y + size);
+    grad.addColorStop(0, FX.shade(color, 48));
+    grad.addColorStop(0.42, color);
+    grad.addColorStop(0.75, FX.shade(color, -18));
+    grad.addColorStop(1, FX.shade(color, -42));
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    ctx.save();
+    FX.roundRectPath(ctx, x, y, size, size, radius);
+    ctx.clip();
+    ctx.strokeStyle = 'rgba(0,0,0,0.16)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x + 2, y + size * 0.58);
+    ctx.lineTo(x + size - 2, y + size * 0.58);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.beginPath();
+    ctx.ellipse(x + size * 0.32, y + size * 0.3, size * 0.16, size * 0.09, -0.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 1.5;
+    FX.roundRectPath(ctx, x + 0.5, y + 0.5, size - 1, size - 1, radius);
+    ctx.stroke();
+  }
+
   return {
     init() {
       const startY = Math.floor(ROWS / 2);
@@ -99,24 +133,44 @@ function createSnakeLevel(api) {
         ctx.stroke();
       }
       FX.sphere(ctx, fcx, fcy, CELL / 2 - 3, golden ? '#ffd24f' : '#ff4fa3');
+      ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(fcx, fcy, CELL / 2 - 3, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.75)';
+      ctx.beginPath();
+      ctx.ellipse(fcx - CELL * 0.13, fcy - CELL * 0.16, 1.8, 1, -0.5, 0, Math.PI * 2);
+      ctx.fill();
 
       for (let i = snake.length - 1; i > 0; i--) {
         const s = snake[i];
-        FX.bevelBlock(ctx, s.x * CELL + 1, s.y * CELL + 1, CELL - 2, CELL - 2, i % 2 === 0 ? '#3ab8a8' : '#4fe3d0', 3);
+        drawSegment(ctx, s.x * CELL + 1, s.y * CELL + 1, CELL - 2, i % 2 === 0 ? '#2f9e91' : '#4fe3d0', 3);
       }
 
       const head = snake[0];
       const hx = head.x * CELL, hy = head.y * CELL;
-      FX.bevelBlock(ctx, hx + 1, hy + 1, CELL - 2, CELL - 2, '#6bff6b', 4);
-      ctx.fillStyle = '#0f2a0f';
+      drawSegment(ctx, hx + 1, hy + 1, CELL - 2, '#6bff6b', 5);
+
       const eo = 5;
       const ex1 = hx + CELL / 2 + (dir.y !== 0 ? -eo : dir.x * eo * 0.4);
       const ex2 = hx + CELL / 2 + (dir.y !== 0 ? eo : dir.x * eo * 0.4);
       const ey1 = hy + CELL / 2 + (dir.x !== 0 ? -eo : dir.y * eo * 0.4);
       const ey2 = hy + CELL / 2 + (dir.x !== 0 ? eo : dir.y * eo * 0.4);
+      ctx.fillStyle = '#eafff0';
       ctx.beginPath();
-      ctx.arc(ex1, ey1, 2, 0, Math.PI * 2);
-      ctx.arc(ex2, ey2, 2, 0, Math.PI * 2);
+      ctx.arc(ex1, ey1, 3, 0, Math.PI * 2);
+      ctx.arc(ex2, ey2, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#0f2a0f';
+      ctx.beginPath();
+      ctx.arc(ex1, ey1, 1.7, 0, Math.PI * 2);
+      ctx.arc(ex2, ey2, 1.7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.beginPath();
+      ctx.arc(ex1 - 0.6, ey1 - 0.6, 0.6, 0, Math.PI * 2);
+      ctx.arc(ex2 - 0.6, ey2 - 0.6, 0.6, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.fillStyle = '#e8ecff';

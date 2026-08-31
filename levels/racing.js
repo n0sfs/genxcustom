@@ -18,8 +18,20 @@ function createRacingLevel(api) {
   }
 
   function drawFuel(ctx, x, y, w, h) {
+    const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 150);
     FX.shadow(ctx, x + w / 2, y + h + 3, w / 2, 3, 0.3);
+    ctx.save();
+    ctx.shadowColor = 'rgba(79,227,208,0.8)';
+    ctx.shadowBlur = 4 + pulse * 4;
     FX.bevelBlock(ctx, x, y, w, h, '#4fe3d0', 3);
+    ctx.restore();
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+    ctx.lineWidth = 1.2;
+    FX.roundRectPath(ctx, x, y, w, h, 3);
+    ctx.stroke();
+    // glossy highlight streak
+    ctx.fillStyle = `rgba(255,255,255,${0.35 + pulse * 0.15})`;
+    ctx.fillRect(x + 2, y + 2, w - 4, 2);
     ctx.fillStyle = '#0a2a2a';
     ctx.font = 'bold 10px monospace';
     ctx.textAlign = 'center';
@@ -27,20 +39,75 @@ function createRacingLevel(api) {
     ctx.textAlign = 'left';
   }
 
+  function glowDot(ctx, x, y, r, colorCore, colorEdge) {
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, colorCore);
+    g.addColorStop(1, colorEdge);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   function drawCar(ctx, x, y, w, h, body) {
     FX.shadow(ctx, x + w / 2, y + h + 4, w / 2 + 2, 4, 0.35);
+    // tires
     ctx.fillStyle = '#161616';
     ctx.fillRect(x - 2, y + 5, 4, h - 10);
     ctx.fillRect(x + w - 2, y + 5, 4, h - 10);
+
+    // body with beveled shading, then a dark silhouette outline (90s sprite look)
     FX.bevelBlock(ctx, x, y, w, h, body, 4);
-    ctx.fillStyle = '#1a2430';
-    ctx.fillRect(x + 4, y + h * 0.32, w - 8, h * 0.3);
-    ctx.fillStyle = '#ffe38a';
-    ctx.fillRect(x + 3, y + 1, 3, 2);
-    ctx.fillRect(x + w - 6, y + 1, 3, 2);
-    ctx.fillStyle = '#ff5c5c';
-    ctx.fillRect(x + 3, y + h - 3, 3, 2);
-    ctx.fillRect(x + w - 6, y + h - 3, 3, 2);
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 1.5;
+    FX.roundRectPath(ctx, x, y, w, h, 4);
+    ctx.stroke();
+
+    // thin chrome bumper trim, front and rear
+    FX.chrome(ctx, x + 3, y, w - 6, 2);
+    FX.chrome(ctx, x + 3, y + h - 2, w - 6, 2);
+
+    // glassy windshield: multi-stop gradient + a bright diagonal reflection streak
+    const wsY = y + h * 0.3, wsH = h * 0.32;
+    const wsGrad = ctx.createLinearGradient(x, wsY, x + w, wsY + wsH);
+    wsGrad.addColorStop(0, '#4a5d70');
+    wsGrad.addColorStop(0.4, '#182430');
+    wsGrad.addColorStop(0.6, '#233240');
+    wsGrad.addColorStop(1, '#0c1218');
+    ctx.fillStyle = wsGrad;
+    ctx.fillRect(x + 4, wsY, w - 8, wsH);
+    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    ctx.moveTo(x + 6, wsY + wsH * 0.15);
+    ctx.lineTo(x + w - 9, wsY + wsH * 0.7);
+    ctx.stroke();
+
+    // headlight glints (radial glow, not flat fill)
+    glowDot(ctx, x + 4, y + 2, 3, '#fff8d8', 'rgba(255,227,138,0)');
+    glowDot(ctx, x + w - 4, y + 2, 3, '#fff8d8', 'rgba(255,227,138,0)');
+    // taillight glow
+    glowDot(ctx, x + 4, y + h - 2, 2.5, '#ffb3b3', 'rgba(255,60,60,0)');
+    glowDot(ctx, x + w - 4, y + h - 2, 2.5, '#ffb3b3', 'rgba(255,60,60,0)');
+  }
+
+  function drawGuardrail(ctx, x, w) {
+    FX.chrome(ctx, x, 0, w, H);
+    const blockH = 24;
+    const offset = ((dashOffset % (blockH * 2)) + blockH * 2) % (blockH * 2);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(x, 0, w, H);
+    ctx.clip();
+    for (let y = -offset - blockH * 2; y < H + blockH * 2; y += blockH) {
+      const idx = Math.round((y + offset) / blockH);
+      ctx.fillStyle = idx % 2 === 0 ? '#ff3b3b' : '#f2f2f2';
+      ctx.fillRect(x, y, w, blockH * 0.6);
+    }
+    ctx.restore();
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, 0, w - 1, H);
   }
 
   function spawnObstacle() {
@@ -136,10 +203,22 @@ function createRacingLevel(api) {
     },
 
     draw(ctx) {
-      ctx.fillStyle = '#182018';
-      ctx.fillRect(0, 0, W, H);
+      FX.gradientRect(ctx, 0, 0, W, H, '#1e2a1e', '#141c14');
 
-      FX.gradientRect(ctx, ROAD_X, 0, ROAD_W, H, '#3a3a44', '#232328');
+      // scrolling roadside scenery ticks (cheap parallax, reuses existing dash scroll)
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      for (let i = -1; i < 8; i++) {
+        const ty = ((i * 60 - dashOffset * 1.5) % (H + 60)) - 30;
+        ctx.fillRect(18, ty, 10, 22);
+        ctx.fillRect(W - 28, ty + 30, 10, 22);
+      }
+
+      FX.gradientRect(ctx, ROAD_X, 0, ROAD_W, H, '#3f3f4a', '#232328');
+
+      // faint tire-wear streaks for road texture
+      ctx.fillStyle = 'rgba(0,0,0,0.12)';
+      ctx.fillRect(ROAD_X + ROAD_W * 0.22, 0, 4, H);
+      ctx.fillRect(ROAD_X + ROAD_W * 0.78, 0, 4, H);
 
       ctx.strokeStyle = 'rgba(255,255,255,0.5)';
       ctx.lineWidth = 3;
@@ -154,9 +233,8 @@ function createRacingLevel(api) {
       }
       ctx.setLineDash([]);
 
-      ctx.fillStyle = '#ffd24f';
-      ctx.fillRect(ROAD_X - 6, 0, 6, H);
-      ctx.fillRect(ROAD_X + ROAD_W, 0, 6, H);
+      drawGuardrail(ctx, ROAD_X - 6, 6);
+      drawGuardrail(ctx, ROAD_X + ROAD_W, 6);
 
       obstacles.forEach((o) => drawCar(ctx, o.x, o.y, o.w, o.h, o.color));
       pickups.forEach((p) => drawFuel(ctx, p.x, p.y, p.w, p.h));
@@ -172,6 +250,19 @@ function createRacingLevel(api) {
         ctx.strokeStyle = 'rgba(79, 227, 208, 0.6)';
         ctx.lineWidth = 3;
         ctx.strokeRect(player.x - 3, player.y - 3, player.w + 6, player.h + 6);
+        // nitro exhaust glow beneath the car
+        const flicker = 0.7 + 0.3 * Math.sin(Date.now() / 40);
+        const flameGrad = ctx.createRadialGradient(
+          player.x + player.w / 2, player.y + player.h + 6, 0,
+          player.x + player.w / 2, player.y + player.h + 6, 16 * flicker
+        );
+        flameGrad.addColorStop(0, 'rgba(200,255,245,0.9)');
+        flameGrad.addColorStop(0.5, 'rgba(79,227,208,0.5)');
+        flameGrad.addColorStop(1, 'rgba(79,227,208,0)');
+        ctx.fillStyle = flameGrad;
+        ctx.beginPath();
+        ctx.ellipse(player.x + player.w / 2, player.y + player.h + 6, 10 * flicker, 16 * flicker, 0, 0, Math.PI * 2);
+        ctx.fill();
       }
       drawCar(ctx, player.x, player.y, player.w, player.h, boostTimer > 0 ? '#8fffe0' : '#4fe3d0');
 

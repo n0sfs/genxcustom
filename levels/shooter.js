@@ -7,7 +7,7 @@ function createShooterLevel(api) {
   const startX = (W - gridW) / 2;
 
   let player, bullets, enemyBullets, enemies, enemyDir, enemyStepTimer;
-  let shotCooldown, hitFlash, invuln, particles, ufo, ufoTimer, popups, bunkers;
+  let shotCooldown, hitFlash, invuln, particles, ufo, ufoTimer, popups, bunkers, stars;
   const UFO_SCORES = [50, 50, 100, 100, 150, 300];
 
   const BUNKER_PATTERN = ['.XXXXX.', 'XXXXXXX', 'XXXXXXX', 'XXXXXXX', 'XX...XX'];
@@ -39,6 +39,36 @@ function createShooterLevel(api) {
       if (hit) return true;
     }
     return false;
+  }
+
+  function spawnStars() {
+    stars = [];
+    for (let i = 0; i < 45; i++) {
+      stars.push({
+        x: Math.random() * W,
+        y0: Math.random() * H,
+        speed: 15 + Math.random() * 45,
+        r: Math.random() < 0.75 ? 0.8 : 1.6,
+        tw: Math.random() * Math.PI * 2,
+      });
+    }
+  }
+
+  function drawStarfield(ctx) {
+    const t = Date.now() / 1000;
+    // faint nebula wash behind the stars
+    const neb = ctx.createLinearGradient(0, 0, 0, H);
+    neb.addColorStop(0, '#0a0a1e');
+    neb.addColorStop(0.5, '#120a1c');
+    neb.addColorStop(1, '#05060a');
+    ctx.fillStyle = neb;
+    ctx.fillRect(0, 0, W, H);
+    stars.forEach((s) => {
+      const y = (s.y0 + t * s.speed) % H;
+      const tw = 0.5 + 0.5 * Math.sin(t * 3 + s.tw);
+      ctx.fillStyle = `rgba(220,230,255,${0.35 + tw * 0.5})`;
+      ctx.fillRect(s.x, y, s.r, s.r);
+    });
   }
 
   function burst(x, y, color) {
@@ -75,12 +105,18 @@ function createShooterLevel(api) {
     const rows = e.pattern;
     const cols = rows[0].length;
     const cw = e.w / cols, ch = e.h / rows.length;
-    ctx.fillStyle = e.color;
+    // soft glow behind the sprite, then shade rows light-to-dark for a lit, chunky pixel-art look
+    FX.shadow(ctx, e.x + e.w / 2, e.y + e.h + 2, e.w / 2.4, 3, 0.25);
     for (let r = 0; r < rows.length; r++) {
+      ctx.fillStyle = FX.shade(e.color, 22 - r * 14);
       for (let c = 0; c < cols; c++) {
         if (rows[r][c] === 'X') ctx.fillRect(e.x + c * cw, e.y + r * ch, cw + 0.5, ch + 0.5);
       }
     }
+    // dark silhouette outline around the whole sprite footprint
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(e.x + 0.5, e.y + 0.5, e.w - 1, e.h - 1);
   }
 
   return {
@@ -99,6 +135,7 @@ function createShooterLevel(api) {
       ufoTimer = 6 + Math.random() * 5;
       popups = [];
       spawnBunkers();
+      spawnStars();
     },
 
     update(dt) {
@@ -223,14 +260,28 @@ function createShooterLevel(api) {
     },
 
     draw(ctx) {
-      ctx.fillStyle = '#05060a';
-      ctx.fillRect(0, 0, W, H);
+      drawStarfield(ctx);
 
       const shipColor = hitFlash > 0 && Math.floor(hitFlash * 20) % 2 === 0 ? '#ff5c5c' : '#4fe3d0';
       FX.shadow(ctx, player.x + player.w / 2, player.y + player.h + 4, player.w / 2, 4, 0.3);
+
+      // engine thruster glow, drawn under the hull
+      const flicker = 0.7 + 0.3 * Math.sin(Date.now() / 45);
+      [player.x + 4, player.x + player.w - 4].forEach((fx) => {
+        const flameGrad = ctx.createRadialGradient(fx, player.y + player.h + 3, 0, fx, player.y + player.h + 3, 8 * flicker);
+        flameGrad.addColorStop(0, 'rgba(255,240,180,0.9)');
+        flameGrad.addColorStop(0.5, 'rgba(255,150,60,0.5)');
+        flameGrad.addColorStop(1, 'rgba(255,150,60,0)');
+        ctx.fillStyle = flameGrad;
+        ctx.beginPath();
+        ctx.ellipse(fx, player.y + player.h + 3, 4 * flicker, 8 * flicker, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
       const shipGrad = ctx.createLinearGradient(player.x, player.y - 8, player.x, player.y + player.h);
-      shipGrad.addColorStop(0, FX.shade(shipColor, 45));
-      shipGrad.addColorStop(1, FX.shade(shipColor, -20));
+      shipGrad.addColorStop(0, FX.shade(shipColor, 55));
+      shipGrad.addColorStop(0.5, shipColor);
+      shipGrad.addColorStop(1, FX.shade(shipColor, -25));
       ctx.fillStyle = shipGrad;
       ctx.beginPath();
       ctx.moveTo(player.x + player.w / 2, player.y - 8);
@@ -238,24 +289,62 @@ function createShooterLevel(api) {
       ctx.lineTo(player.x + 3, player.y + player.h);
       ctx.closePath();
       ctx.fill();
-      ctx.fillRect(player.x, player.y + player.h - 6, 8, 6);
-      ctx.fillRect(player.x + player.w - 8, player.y + player.h - 6, 8, 6);
-      ctx.fillStyle = '#0a2a3a';
+      // silhouette outline
+      ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // chrome engine nacelles
+      FX.chrome(ctx, player.x, player.y + player.h - 6, 8, 6);
+      FX.chrome(ctx, player.x + player.w - 8, player.y + player.h - 6, 8, 6);
+      ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(player.x + 0.5, player.y + player.h - 5.5, 7, 5);
+      ctx.strokeRect(player.x + player.w - 7.5, player.y + player.h - 5.5, 7, 5);
+
+      // nav lights on the wingtips
+      const navBlink = Math.sin(Date.now() / 200) > 0;
+      if (navBlink) {
+        ctx.fillStyle = '#ff5c5c';
+        ctx.fillRect(player.x, player.y + player.h - 1, 2, 2);
+        ctx.fillStyle = '#6bff6b';
+        ctx.fillRect(player.x + player.w - 2, player.y + player.h - 1, 2, 2);
+      }
+
+      // glassy cockpit canopy with a bright reflection streak
+      const canopyGrad = ctx.createRadialGradient(
+        player.x + player.w / 2 - 1, player.y + 4, 0.5,
+        player.x + player.w / 2, player.y + 6, 4
+      );
+      canopyGrad.addColorStop(0, '#cdeeff');
+      canopyGrad.addColorStop(0.4, '#3a6a8a');
+      canopyGrad.addColorStop(1, '#0a2a3a');
+      ctx.fillStyle = canopyGrad;
       ctx.beginPath();
       ctx.arc(player.x + player.w / 2, player.y + 6, 3, 0, Math.PI * 2);
       ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
 
       bunkers.forEach((bk) => {
-        ctx.fillStyle = '#1a4a2a';
+        ctx.fillStyle = '#123a20';
         bk.blocks.forEach((row, r) => {
           row.forEach((alive, c) => {
             if (alive) ctx.fillRect(bk.x + c * BLOCK + 2, bk.y + r * BLOCK + 2, BLOCK, BLOCK);
           });
         });
-        ctx.fillStyle = '#6bff6b';
         bk.blocks.forEach((row, r) => {
+          ctx.fillStyle = FX.shade('#6bff6b', 10 - r * 12);
           row.forEach((alive, c) => {
-            if (alive) ctx.fillRect(bk.x + c * BLOCK, bk.y + r * BLOCK, BLOCK, BLOCK);
+            if (alive) {
+              ctx.fillRect(bk.x + c * BLOCK, bk.y + r * BLOCK, BLOCK, BLOCK);
+              if (r === 0) {
+                ctx.fillStyle = 'rgba(255,255,255,0.35)';
+                ctx.fillRect(bk.x + c * BLOCK, bk.y + r * BLOCK, BLOCK, 1.5);
+                ctx.fillStyle = FX.shade('#6bff6b', 10 - r * 12);
+              }
+            }
           });
         });
       });
@@ -265,22 +354,41 @@ function createShooterLevel(api) {
       if (ufo) {
         const ucx = ufo.x + ufo.w / 2, ucy = ufo.y + ufo.h / 2;
         const ufoGrad = ctx.createLinearGradient(ucx, ufo.y, ucx, ufo.y + ufo.h);
-        ufoGrad.addColorStop(0, FX.shade('#ff4fa3', 35));
-        ufoGrad.addColorStop(1, FX.shade('#ff4fa3', -25));
+        ufoGrad.addColorStop(0, FX.shade('#ff4fa3', 45));
+        ufoGrad.addColorStop(0.5, '#ff4fa3');
+        ufoGrad.addColorStop(1, FX.shade('#ff4fa3', -30));
         ctx.fillStyle = ufoGrad;
         ctx.beginPath();
         ctx.ellipse(ucx, ucy, ufo.w / 2, ufo.h / 2, 0, 0, Math.PI * 2);
         ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        // canopy highlight
         ctx.fillStyle = '#ffe3ee';
         ctx.beginPath();
         ctx.ellipse(ufo.x + ufo.w / 2, ufo.y + ufo.h / 2 - 3, ufo.w / 4, ufo.h / 3, 0, 0, Math.PI * 2);
         ctx.fill();
+        // blinking hull lights along the rim
+        for (let i = 0; i < 4; i++) {
+          const lx = ufo.x + (ufo.w / 4) * i + ufo.w / 8;
+          const lit = Math.sin(Date.now() / 120 + i * 1.5) > 0.2;
+          ctx.fillStyle = lit ? '#fff6a8' : 'rgba(255,246,168,0.25)';
+          ctx.beginPath();
+          ctx.arc(lx, ufo.y + ufo.h * 0.75, 1.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
 
+      ctx.save();
+      ctx.shadowBlur = 6;
+      ctx.shadowColor = 'rgba(255,210,79,0.9)';
       ctx.fillStyle = '#ffd24f';
       bullets.forEach((b) => ctx.fillRect(b.x, b.y, b.w, b.h));
+      ctx.shadowColor = 'rgba(255,92,92,0.9)';
       ctx.fillStyle = '#ff5c5c';
       enemyBullets.forEach((b) => ctx.fillRect(b.x, b.y, b.w, b.h));
+      ctx.restore();
 
       particles.forEach((p) => {
         ctx.fillStyle = p.color;

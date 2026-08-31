@@ -99,5 +99,32 @@ const FX = (() => {
     ctx.restore();
   }
 
-  return { shade, shadow, bevelRect, insetRect, sphere, gradientRect, roundRectPath, bevelBlock };
+  // Faint horizontal scan lines, like a CRT arcade monitor.
+  function scanlines(ctx, w, h, alpha = 0.05) {
+    ctx.fillStyle = `rgba(0,0,0,${alpha})`;
+    for (let y = 0; y < h; y += 3) ctx.fillRect(0, y, w, 1);
+  }
+
+  // Radial darkening toward the screen edges, like a curved CRT tube.
+  function vignette(ctx, w, h, strength = 0.35) {
+    const grad = ctx.createRadialGradient(w / 2, h / 2, h * 0.35, w / 2, h / 2, h * 0.75);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, `rgba(0,0,0,${strength})`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  // Brushed-metal gradient for chrome/steel surfaces (HUD panels, vehicle trim).
+  function chrome(ctx, x, y, w, h) {
+    const grad = ctx.createLinearGradient(x, y, x, y + h);
+    grad.addColorStop(0, '#e8ecf4');
+    grad.addColorStop(0.28, '#aab2c4');
+    grad.addColorStop(0.5, '#6a7284');
+    grad.addColorStop(0.72, '#aab2c4');
+    grad.addColorStop(1, '#3a4054');
+    ctx.fillStyle = grad;
+    ctx.fillRect(x, y, w, h);
+  }
+
+  return { shade, shadow, bevelRect, insetRect, sphere, gradientRect, roundRectPath, bevelBlock, scanlines, vignette, chrome };
 })();

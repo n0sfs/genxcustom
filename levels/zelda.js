@@ -41,7 +41,14 @@ function createZeldaLevel(api) {
   const BOSS_HP = 4;
   const BOSS_SPAWN = { x: ROOM_W + ROOM_W / 2 - 24, y: ROOM_H + ROOM_H / 2 - 90 };
 
-  let player, enemies, projectiles, camX, camY, goal, goalActive, particles, hearts, boss, bossSpawned;
+  let player, enemies, projectiles, camX, camY, goal, goalActive, particles, hearts, boss, bossSpawned, torchTime;
+
+  // Fixed decorative wall torches for dungeon atmosphere (purely cosmetic).
+  const torches = [
+    { x: 44, y: 44 }, { x: WORLD_W - 44, y: 44 },
+    { x: 44, y: WORLD_H - 44 }, { x: WORLD_W - 44, y: WORLD_H - 44 },
+    { x: ROOM_W, y: ROOM_H / 2 },
+  ];
 
   function spawnBoss() {
     boss = {
@@ -136,6 +143,7 @@ function createZeldaLevel(api) {
       boss = null;
       bossSpawned = false;
       camX = 0; camY = 0;
+      torchTime = 0;
     },
 
     update(dt) {
@@ -301,6 +309,8 @@ function createZeldaLevel(api) {
     },
 
     draw(ctx) {
+      torchTime += 1 / 60;
+
       ctx.fillStyle = '#1c1408';
       ctx.fillRect(0, 0, W, H);
 
@@ -308,30 +318,104 @@ function createZeldaLevel(api) {
       ctx.translate(-camX, -camY);
 
       FX.gradientRect(ctx, 0, 0, WORLD_W, WORLD_H, '#463824', '#2e2414');
-      ctx.strokeStyle = 'rgba(0,0,0,0.15)';
-      for (let x = 0; x < WORLD_W; x += 40) {
-        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, WORLD_H); ctx.stroke();
-      }
-      for (let y = 0; y < WORLD_H; y += 40) {
-        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(WORLD_W, y); ctx.stroke();
+
+      // stone-brick floor texture: coursing seams offset every other row,
+      // limited to the visible viewport so cost stays flat regardless of world size
+      const TILE = 40;
+      const vx0 = Math.max(0, Math.floor(camX / TILE) - 1) * TILE;
+      const vx1 = Math.min(WORLD_W, camX + W + TILE);
+      const vy0 = Math.max(0, Math.floor(camY / TILE) - 1) * TILE;
+      const vy1 = Math.min(WORLD_H, camY + H + TILE);
+      ctx.lineWidth = 1;
+      for (let y = vy0; y < vy1; y += TILE) {
+        ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+        ctx.beginPath(); ctx.moveTo(vx0, y); ctx.lineTo(vx1, y); ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,220,160,0.05)';
+        ctx.beginPath(); ctx.moveTo(vx0, y + 1); ctx.lineTo(vx1, y + 1); ctx.stroke();
+        const rowIdx = Math.round(y / TILE);
+        const offset = (rowIdx % 2) * (TILE / 2);
+        ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+        for (let x = vx0 + offset; x < vx1; x += TILE) {
+          ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + TILE); ctx.stroke();
+        }
       }
 
       walls.forEach((w) => {
         FX.bevelRect(ctx, w.x, w.y, w.w, w.h, '#6b4a2a', 3);
+        ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(w.x + 0.75, w.y + 0.75, w.w - 1.5, w.h - 1.5);
+        // mortar coursing lines on corridor walls / obstacle blocks (skip the long world borders)
+        const short = Math.min(w.w, w.h), long = Math.max(w.w, w.h);
+        if (short <= 40 && long <= 320) {
+          ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+          ctx.lineWidth = 1;
+          if (w.h >= w.w) {
+            for (let yy = w.y + 16; yy < w.y + w.h - 4; yy += 16) {
+              ctx.beginPath(); ctx.moveTo(w.x + 2, yy); ctx.lineTo(w.x + w.w - 2, yy); ctx.stroke();
+            }
+          } else {
+            for (let xx = w.x + 16; xx < w.x + w.w - 4; xx += 16) {
+              ctx.beginPath(); ctx.moveTo(xx, w.y + 2); ctx.lineTo(xx, w.y + w.h - 2); ctx.stroke();
+            }
+          }
+        }
+      });
+
+      // wall-mounted torches for warm dungeon atmosphere
+      torches.forEach((t, i) => {
+        const flicker = 0.75 + Math.sin(torchTime * 9 + i * 2.3) * 0.15 + Math.sin(torchTime * 23 + i) * 0.06;
+        const glow = ctx.createRadialGradient(t.x, t.y, 2, t.x, t.y, 46 * flicker);
+        glow.addColorStop(0, `rgba(255, 200, 100, ${0.42 * flicker})`);
+        glow.addColorStop(1, 'rgba(255, 150, 40, 0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(t.x, t.y, 46 * flicker, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#2a1a10';
+        ctx.fillRect(t.x - 3, t.y - 2, 6, 10);
+        const flameGrad = ctx.createRadialGradient(t.x, t.y - 6, 1, t.x, t.y - 6, 8 * flicker);
+        flameGrad.addColorStop(0, '#fff6c8');
+        flameGrad.addColorStop(0.5, '#ffb347');
+        flameGrad.addColorStop(1, '#c23c1a');
+        ctx.fillStyle = flameGrad;
+        ctx.beginPath();
+        ctx.ellipse(t.x, t.y - 6 - flicker, 4 * flicker, 7 * flicker, 0, 0, Math.PI * 2);
+        ctx.fill();
       });
 
       if (goalActive) {
-        ctx.fillStyle = '#ffd24f';
+        const pulse = 0.7 + Math.sin(torchTime * 4) * 0.3;
+        const gcx = goal.x + goal.w / 2, gcy = goal.y + goal.h / 2;
+        const glow = ctx.createRadialGradient(gcx, gcy, 2, gcx, gcy, 30 * pulse);
+        glow.addColorStop(0, `rgba(255,210,79,${0.5 * pulse})`);
+        glow.addColorStop(1, 'rgba(255,210,79,0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(gcx, gcy, 30 * pulse, 0, Math.PI * 2);
+        ctx.fill();
+
+        const diaGrad = ctx.createLinearGradient(goal.x, goal.y, goal.x + goal.w, goal.y + goal.h);
+        diaGrad.addColorStop(0, '#fff3c0');
+        diaGrad.addColorStop(0.5, '#ffd24f');
+        diaGrad.addColorStop(1, '#c98f1a');
+        ctx.fillStyle = diaGrad;
         ctx.save();
-        ctx.translate(goal.x + goal.w / 2, goal.y + goal.h / 2);
+        ctx.translate(gcx, gcy);
         ctx.rotate(Math.PI / 4);
         ctx.fillRect(-goal.w / 2, -goal.h / 2, goal.w, goal.h);
+        ctx.strokeStyle = 'rgba(90,50,0,0.6)';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(-goal.w / 2, -goal.h / 2, goal.w, goal.h);
         ctx.restore();
       }
 
       hearts.forEach((h) => {
         const hcx = h.x + h.w / 2, hcy = h.y + h.h / 2;
-        ctx.fillStyle = '#ff4fa3';
+        const heartGrad = ctx.createRadialGradient(hcx - 2, hcy - 3, 1, hcx, hcy, 9);
+        heartGrad.addColorStop(0, '#ffb3d9');
+        heartGrad.addColorStop(1, '#ff4fa3');
+        ctx.fillStyle = heartGrad;
         ctx.beginPath();
         ctx.arc(hcx - 4, hcy - 3, 5, 0, Math.PI * 2);
         ctx.arc(hcx + 4, hcy - 3, 5, 0, Math.PI * 2);
@@ -339,6 +423,9 @@ function createZeldaLevel(api) {
         ctx.lineTo(hcx, hcy + 8);
         ctx.lineTo(hcx + 8, hcy - 1);
         ctx.fill();
+        ctx.strokeStyle = 'rgba(80,0,40,0.5)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
       });
 
       enemies.filter((e) => e.alive).forEach((e) => {
@@ -346,6 +433,11 @@ function createZeldaLevel(api) {
         if (e.type === 'chaser') {
           FX.shadow(ctx, ecx, ecy + e.h / 2 + 2, e.w / 2, 3, 0.3);
           FX.sphere(ctx, ecx, ecy, e.w / 2, '#ff4fa3');
+          ctx.strokeStyle = 'rgba(40,0,20,0.5)';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(ecx, ecy, e.w / 2, 0, Math.PI * 2);
+          ctx.stroke();
           ctx.fillStyle = '#fff';
           ctx.beginPath();
           ctx.arc(ecx - 4, ecy - 2, 3, 0, Math.PI * 2);
@@ -356,14 +448,29 @@ function createZeldaLevel(api) {
           ctx.arc(ecx - 4, ecy - 1, 1.4, 0, Math.PI * 2);
           ctx.arc(ecx + 4, ecy - 1, 1.4, 0, Math.PI * 2);
           ctx.fill();
+          ctx.fillStyle = 'rgba(255,255,255,0.85)';
+          ctx.beginPath();
+          ctx.arc(ecx - 5, ecy - 3, 0.7, 0, Math.PI * 2);
+          ctx.arc(ecx + 3, ecy - 3, 0.7, 0, Math.PI * 2);
+          ctx.fill();
         } else {
           FX.shadow(ctx, ecx, e.y + e.h + 2, e.w / 2, 3, 0.3);
           FX.bevelRect(ctx, e.x, e.y, e.w, e.h, '#2a5a5a', 3);
-          ctx.fillStyle = '#4fe3d0';
+          ctx.strokeStyle = 'rgba(0,15,15,0.5)';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(e.x + 0.75, e.y + 0.75, e.w - 1.5, e.h - 1.5);
+          const lensGrad = ctx.createRadialGradient(ecx - 2, ecy - 2, 1, ecx, ecy, e.w / 2 - 4);
+          lensGrad.addColorStop(0, '#9dfff0');
+          lensGrad.addColorStop(1, '#2a8a7a');
+          ctx.fillStyle = lensGrad;
           ctx.fillRect(e.x + 4, e.y + 4, e.w - 8, e.h - 8);
           ctx.fillStyle = '#0a2a2a';
           ctx.beginPath();
           ctx.arc(ecx, ecy, 4, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = 'rgba(255,255,255,0.75)';
+          ctx.beginPath();
+          ctx.arc(ecx - 1.5, ecy - 1.5, 1, 0, Math.PI * 2);
           ctx.fill();
         }
       });
@@ -378,8 +485,33 @@ function createZeldaLevel(api) {
           ctx.ellipse(bcx, bcy, boss.w / 2, boss.h / 2, 0, 0, Math.PI * 2);
           ctx.fill();
         } else {
+          // dramatic pulsing aura + multi-tone body for a final-boss feel
+          const auraGrad = ctx.createRadialGradient(bcx, bcy, boss.w * 0.4, bcx, bcy, boss.w * 0.75);
+          auraGrad.addColorStop(0, 'rgba(255,79,163,0)');
+          auraGrad.addColorStop(1, `rgba(255,79,163,${0.15 + Math.sin(torchTime * 5) * 0.08})`);
+          ctx.fillStyle = auraGrad;
+          ctx.beginPath();
+          ctx.arc(bcx, bcy, boss.w * 0.75, 0, Math.PI * 2);
+          ctx.fill();
           FX.sphere(ctx, bcx, bcy, boss.w / 2, '#8a2a5a');
+          // spiked crown silhouette
+          ctx.fillStyle = FX.shade('#8a2a5a', -22);
+          [-0.6, -0.2, 0.2, 0.6].forEach((a) => {
+            const sxp = bcx + Math.cos(-Math.PI / 2 + a) * boss.w * 0.42;
+            const syp = bcy + Math.sin(-Math.PI / 2 + a) * boss.h * 0.42;
+            ctx.beginPath();
+            ctx.moveTo(sxp - 3, syp + 4);
+            ctx.lineTo(sxp, syp - 8);
+            ctx.lineTo(sxp + 3, syp + 4);
+            ctx.closePath();
+            ctx.fill();
+          });
         }
+        ctx.strokeStyle = 'rgba(30,0,15,0.55)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(bcx, bcy, boss.w / 2, boss.h / 2, 0, 0, Math.PI * 2);
+        ctx.stroke();
         ctx.fillStyle = '#ffd24f';
         ctx.beginPath();
         ctx.arc(bcx - 9, bcy - 4, 4, 0, Math.PI * 2);
@@ -390,18 +522,34 @@ function createZeldaLevel(api) {
         ctx.arc(bcx - 9 + boss.dir.dx * 2, bcy - 4 + boss.dir.dy * 2, 1.8, 0, Math.PI * 2);
         ctx.arc(bcx + 9 + boss.dir.dx * 2, bcy - 4 + boss.dir.dy * 2, 1.8, 0, Math.PI * 2);
         ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        ctx.beginPath();
+        ctx.arc(bcx - 10, bcy - 6, 0.9, 0, Math.PI * 2);
+        ctx.arc(bcx + 8, bcy - 6, 0.9, 0, Math.PI * 2);
+        ctx.fill();
 
         const barW = 50;
         ctx.fillStyle = '#2a0a1a';
         ctx.fillRect(bcx - barW / 2, boss.y - 12, barW, 5);
         ctx.fillStyle = '#ff4fa3';
         ctx.fillRect(bcx - barW / 2, boss.y - 12, barW * (boss.hp / BOSS_HP), 5);
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(bcx - barW / 2 + 0.5, boss.y - 11.5, barW - 1, 4);
       }
 
-      ctx.fillStyle = '#ffd24f';
       projectiles.forEach((p) => {
+        const pg = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 6);
+        pg.addColorStop(0, '#fff6c8');
+        pg.addColorStop(0.5, '#ffd24f');
+        pg.addColorStop(1, 'rgba(255,140,20,0)');
+        ctx.fillStyle = pg;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fff6c8';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
         ctx.fill();
       });
 
@@ -412,12 +560,17 @@ function createZeldaLevel(api) {
 
       if (player.attackTimer > 0) {
         const reach = 26;
-        ctx.fillStyle = 'rgba(232, 236, 255, 0.85)';
-        ctx.fillRect(
-          player.x + player.w / 2 - 14 + player.facing.dx * reach,
-          player.y + player.h / 2 - 14 + player.facing.dy * reach,
-          28, 28
-        );
+        const sx = player.x + player.w / 2 - 14 + player.facing.dx * reach;
+        const sy = player.y + player.h / 2 - 14 + player.facing.dy * reach;
+        const swingGrad = ctx.createLinearGradient(sx, sy, sx + 28, sy + 28);
+        swingGrad.addColorStop(0, 'rgba(255,255,255,0.95)');
+        swingGrad.addColorStop(0.5, 'rgba(210,225,255,0.75)');
+        swingGrad.addColorStop(1, 'rgba(140,170,255,0.35)');
+        ctx.fillStyle = swingGrad;
+        ctx.fillRect(sx, sy, 28, 28);
+        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(sx + 4, sy + 4, 20, 20);
       }
 
       {
@@ -434,11 +587,27 @@ function createZeldaLevel(api) {
         const pcx = player.x + player.w / 2;
         FX.shadow(ctx, pcx, player.y + player.h + 3, player.w / 2, 3, 0.3);
         FX.bevelRect(ctx, player.x, player.y + 9, player.w, player.h - 9, bodyColor, 3);
+        ctx.strokeStyle = 'rgba(20,20,10,0.5)';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(player.x + 0.75, player.y + 9.75, player.w - 1.5, player.h - 10.5);
+        // tunic highlight streak for a glossier, more lit look
+        ctx.fillStyle = 'rgba(255,255,255,0.18)';
+        ctx.fillRect(player.x + 2, player.y + 11, 3, player.h - 13);
         ctx.fillStyle = '#7a4a1a';
         ctx.fillRect(player.x, player.y + player.h - 8, player.w, 3);
+        ctx.strokeStyle = 'rgba(20,10,0,0.5)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(player.x + 0.5, player.y + player.h - 7.5, player.w - 1, 2);
         ctx.fillStyle = '#e8b98a';
         ctx.beginPath();
         ctx.arc(pcx, player.y + 6, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(90,50,20,0.55)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,0.4)';
+        ctx.beginPath();
+        ctx.arc(pcx - 2, player.y + 4, 1.2, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = bodyColor;
         ctx.beginPath();
@@ -447,11 +616,21 @@ function createZeldaLevel(api) {
         ctx.lineTo(pcx, player.y - 6);
         ctx.closePath();
         ctx.fill();
+        ctx.strokeStyle = 'rgba(20,20,10,0.5)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        // weapon glint
         ctx.fillStyle = '#e8b98a';
         ctx.fillRect(
           player.x + player.w / 2 - 3 + player.facing.dx * 10,
           player.y + player.h / 2 - 3 + player.facing.dy * 10,
           6, 6
+        );
+        ctx.fillStyle = 'rgba(255,255,255,0.55)';
+        ctx.fillRect(
+          player.x + player.w / 2 - 3 + player.facing.dx * 10,
+          player.y + player.h / 2 - 3 + player.facing.dy * 10,
+          2, 2
         );
       }
 

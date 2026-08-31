@@ -154,6 +154,123 @@ function createPinballLevel(api) {
     flip.tip = { x: flip.pivot.x + flip.dir.x * flip.length, y: flip.pivot.y + flip.dir.y * flip.length };
   }
 
+  // ---- draw helpers (cosmetic only) ----
+
+  function drawWall(ctx, w) {
+    FX.chrome(ctx, w.x, w.y, w.w, w.h);
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(w.x + 0.75, w.y + 0.75, w.w - 1.5, w.h - 1.5);
+    // rivet studs along the rail
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    const vertical = w.h > w.w;
+    const span = vertical ? w.h : w.w;
+    const count = Math.max(1, Math.floor(span / 42));
+    for (let i = 1; i <= count; i++) {
+      const t = (i * span) / (count + 1);
+      const rx = vertical ? w.x + w.w / 2 : w.x + t;
+      const ry = vertical ? w.y + t : w.y + w.h / 2;
+      ctx.beginPath();
+      ctx.arc(rx, ry, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.beginPath();
+      ctx.arc(rx - 0.4, ry - 0.4, 0.7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    }
+  }
+
+  function drawBumper(ctx, bp) {
+    FX.shadow(ctx, bp.x, bp.y + bp.r * 0.7, bp.r * 0.9, bp.r * 0.3, 0.3);
+
+    // metallic base rim
+    const rim = ctx.createRadialGradient(bp.x, bp.y, bp.r * 0.75, bp.x, bp.y, bp.r * 1.2);
+    rim.addColorStop(0, 'rgba(255,255,255,0.1)');
+    rim.addColorStop(0.7, 'rgba(200,205,220,0.55)');
+    rim.addColorStop(1, 'rgba(50,54,70,0.9)');
+    ctx.fillStyle = rim;
+    ctx.beginPath();
+    ctx.arc(bp.x, bp.y, bp.r * 1.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    FX.sphere(ctx, bp.x, bp.y, bp.r, bp.flash > 0 ? '#ffffff' : bp.color);
+
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(bp.x, bp.y, bp.r, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(bp.x, bp.y, bp.r * 0.6, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // specular highlight
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.beginPath();
+    ctx.ellipse(bp.x - bp.r * 0.3, bp.y - bp.r * 0.35, bp.r * 0.28, bp.r * 0.16, -0.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawFlipper(ctx, f) {
+    ctx.lineCap = 'round';
+
+    // dark outline pass (wider, drawn under)
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 18;
+    ctx.beginPath();
+    ctx.moveTo(f.pivot.x, f.pivot.y);
+    ctx.lineTo(f.tip.x, f.tip.y);
+    ctx.stroke();
+
+    // glossy metallic body
+    const grad = ctx.createLinearGradient(f.pivot.x, f.pivot.y, f.tip.x, f.tip.y);
+    grad.addColorStop(0, '#c4c9e4');
+    grad.addColorStop(0.5, '#f8faff');
+    grad.addColorStop(1, '#ced3ec');
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = 15;
+    ctx.beginPath();
+    ctx.moveTo(f.pivot.x, f.pivot.y);
+    ctx.lineTo(f.tip.x, f.tip.y);
+    ctx.stroke();
+
+    // specular streak along one edge
+    const px = -f.dir.y * 3.2, py = f.dir.x * 3.2;
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(f.pivot.x - px, f.pivot.y - py);
+    ctx.lineTo(f.tip.x - px, f.tip.y - py);
+    ctx.stroke();
+
+    // pivot rivet cap
+    FX.sphere(ctx, f.pivot.x, f.pivot.y, 6, '#9098b8');
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(f.pivot.x, f.pivot.y, 6, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  function drawBall(ctx, ball) {
+    FX.sphere(ctx, ball.x, ball.y, BALL_R, '#ffd24f');
+
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.beginPath();
+    ctx.ellipse(ball.x - BALL_R * 0.35, ball.y - BALL_R * 0.4, BALL_R * 0.32, BALL_R * 0.2, -0.6, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, BALL_R, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
   function flipperBounce(b, flip) {
     const px = flip.pivot.x, py = flip.pivot.y;
     const tx = flip.tip.x, ty = flip.tip.y;
@@ -249,39 +366,48 @@ function createPinballLevel(api) {
 
       FX.gradientRect(ctx, 20, 8, 600, 462, '#1e2038', '#12121e');
 
+      // faint brushed-felt streaks across the playfield
+      ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 6; i++) {
+        const gx = 60 + i * 100;
+        ctx.beginPath();
+        ctx.moveTo(gx, 8);
+        ctx.lineTo(gx - 40, 470);
+        ctx.stroke();
+      }
+
       walls.forEach((w) => {
-        FX.bevelRect(ctx, w.x, w.y, w.w, w.h, '#4a4a6a', 2);
+        drawWall(ctx, w);
       });
 
       bumpers.forEach((bp) => {
-        FX.shadow(ctx, bp.x, bp.y + bp.r * 0.7, bp.r * 0.9, bp.r * 0.3, 0.3);
-        FX.sphere(ctx, bp.x, bp.y, bp.r, bp.flash > 0 ? '#ffffff' : bp.color);
-        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(bp.x, bp.y, bp.r * 0.6, 0, Math.PI * 2);
-        ctx.stroke();
+        drawBumper(ctx, bp);
       });
 
       [flippers.left, flippers.right].forEach((f) => {
-        ctx.strokeStyle = '#e8ecff';
-        ctx.lineWidth = 16;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.moveTo(f.pivot.x, f.pivot.y);
-        ctx.lineTo(f.tip.x, f.tip.y);
-        ctx.stroke();
+        drawFlipper(ctx, f);
       });
 
       targets.forEach((t) => {
-        if (t.alive) FX.bevelBlock(ctx, t.x, t.y, t.w, t.h, '#ff9a4f', 2);
-        else {
-          ctx.fillStyle = '#3a2a20';
+        if (t.alive) {
+          FX.bevelBlock(ctx, t.x, t.y, t.w, t.h, '#ff9a4f', 2);
+          ctx.save();
+          FX.roundRectPath(ctx, t.x, t.y, t.w, t.h, 2);
+          ctx.clip();
+          const g = ctx.createLinearGradient(t.x, t.y, t.x, t.y + t.h);
+          g.addColorStop(0, 'rgba(255,255,255,0.45)');
+          g.addColorStop(0.5, 'rgba(255,255,255,0.05)');
+          g.addColorStop(1, 'rgba(0,0,0,0.2)');
+          ctx.fillStyle = g;
           ctx.fillRect(t.x, t.y, t.w, t.h);
+          ctx.restore();
+        } else {
+          FX.insetRect(ctx, t.x, t.y, t.w, t.h, '#3a2a20', 2);
         }
-        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(t.x, t.y, t.w, t.h);
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(t.x + 0.75, t.y + 0.75, t.w - 1.5, t.h - 1.5);
       });
 
       if (balls.some((b) => !b.launched)) {
@@ -291,7 +417,7 @@ function createPinballLevel(api) {
       }
 
       balls.forEach((ball) => {
-        FX.sphere(ctx, ball.x, ball.y, BALL_R, '#ffd24f');
+        drawBall(ctx, ball);
       });
 
       ctx.font = '10px monospace';
