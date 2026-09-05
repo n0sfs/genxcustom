@@ -171,22 +171,76 @@ const Game = (() => {
     Object.values(screens).forEach((el) => el.classList.add('hidden'));
   }
 
-  function registerLevel(name, factory, tag) {
-    state.levelDefs.push({ name, factory, tag: tag || '' });
+  function registerLevel(name, factory, tag, tagline) {
+    state.levelDefs.push({ name, factory, tag: tag || '', tagline: tagline || '' });
+  }
+
+  function accentFor(i, total) {
+    return `hsl(${Math.round((i * 360) / total)}, 85%, 62%)`;
   }
 
   function renderLevelList() {
     if (!levelListEl) return;
+    const total = state.levelDefs.length;
     levelListEl.innerHTML = state.levelDefs
-      .map((def, i) => `<div data-idx="${i}"><span class="lvl-num">${String(i + 1).padStart(2, '0')} · ${def.name}</span><span class="tag">${def.tag}</span></div>`)
+      .map((def, i) => `
+        <div class="lvl-card" role="button" tabindex="0" data-idx="${i}" style="--accent:${accentFor(i, total)}" aria-label="Play ${def.name}">
+          <span class="lvl-thumb" data-thumb="${i}"></span>
+          <span class="lvl-info">
+            <span class="lvl-num">${String(i + 1).padStart(2, '0')} &middot; ${def.name}</span>
+            <span class="lvl-tagline">${def.tagline}</span>
+            <span class="tag">${def.tag}</span>
+          </span>
+        </div>
+      `)
       .join('');
+    Array.from(levelListEl.children).forEach((el, i) => {
+      el.addEventListener('click', () => {
+        state.selectedLevel = i;
+        renderLevelSelection();
+        sfx('select');
+        startRun(i);
+      });
+    });
     renderLevelSelection();
+    renderThumbnails();
   }
 
   function renderLevelSelection() {
     if (!levelListEl) return;
     Array.from(levelListEl.children).forEach((el, i) => {
       el.classList.toggle('selected', i === state.selectedLevel);
+    });
+  }
+
+  function renderThumbnails() {
+    state.levelDefs.forEach((def, i) => {
+      const slot = levelListEl.querySelector(`[data-thumb="${i}"]`);
+      if (!slot) return;
+      try {
+        const tCanvas = document.createElement('canvas');
+        tCanvas.width = W;
+        tCanvas.height = H;
+        const tCtx = tCanvas.getContext('2d');
+        const previewApi = {
+          W, H, ctx: tCtx,
+          isDown: () => false,
+          addScore: () => {},
+          loseLife: () => {},
+          winLevel: () => {},
+          sfx: () => {},
+          shake: () => {},
+          get lives() { return START_LIVES; },
+          get score() { return 0; },
+        };
+        const instance = def.factory(previewApi);
+        instance.init();
+        instance.update(1 / 60);
+        instance.draw(tCtx);
+        slot.appendChild(tCanvas);
+      } catch (e) {
+        slot.style.background = 'linear-gradient(160deg, rgba(255,255,255,0.06), rgba(0,0,0,0.3))';
+      }
     });
   }
 

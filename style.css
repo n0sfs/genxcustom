@@ -105,6 +105,8 @@ body {
 
 .screen.hidden { display: none; }
 
+#screen-title { justify-content: flex-start; }
+
 .screen h1 {
   font-family: var(--display);
   color: var(--cyan);
@@ -125,25 +127,69 @@ body {
 
 .sub { color: #9aa3c0; font-size: 17px; letter-spacing: 1px; margin: 0; }
 
-.levelist {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(180px, 1fr));
-  gap: 4px 28px;
-  font-size: 17px;
-  color: var(--text);
-  background: rgba(255,255,255,0.03);
-  border: 1px solid var(--line);
-  padding: 14px 20px;
-  border-radius: 4px;
+.eyebrow {
+  font-family: var(--display);
+  font-size: 10px;
+  letter-spacing: 3px;
+  margin: 0;
+  color: var(--magenta);
+  text-shadow: 0 0 6px var(--magenta), 0 0 14px rgba(255, 79, 163, 0.6);
+  animation: eyebrow-pulse 2.2s ease-in-out infinite;
 }
 
-.levelist div { display: flex; justify-content: space-between; gap: 14px; white-space: nowrap; padding: 2px 6px; border-radius: 3px; }
-.levelist .tag { color: var(--cyan); }
-.levelist div.selected { background: rgba(107, 255, 107, 0.14); box-shadow: inset 2px 0 0 var(--green); }
-.levelist div.selected .lvl-num { color: var(--green); }
+@keyframes eyebrow-pulse {
+  0%, 100% { opacity: 0.75; }
+  50% { opacity: 1; }
+}
+
+.levelist {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+.lvl-card {
+  --accent: var(--cyan);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 2px solid var(--accent);
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.lvl-card:hover,
+.lvl-card:focus-visible {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 16px -4px var(--accent);
+  outline: none;
+}
+
+.lvl-card.selected {
+  box-shadow: 0 0 0 2px var(--accent), 0 6px 18px -4px var(--accent);
+}
+
+.lvl-thumb {
+  display: block;
+  aspect-ratio: 4 / 3;
+  background: #000;
+  overflow: hidden;
+}
+.lvl-thumb canvas { width: 100%; height: 100%; display: block; }
+
+.lvl-info { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px 8px; }
+.lvl-num { font-size: 12px; color: var(--accent); font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lvl-tagline { font-size: 11px; color: #9aa3c0; line-height: 1.25; }
+.lvl-info .tag { font-size: 10px; color: #7d86a3; text-transform: uppercase; letter-spacing: 0.5px; }
 
 @media (max-width: 460px) {
-  .levelist { grid-template-columns: 1fr; font-size: 15px; }
+  .levelist { grid-template-columns: repeat(2, 1fr); }
+  .lvl-tagline { display: none; }
 }
 
 .prompt { font-family: var(--display); font-size: 11px; color: var(--green); }

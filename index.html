@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GENX ARCADE</title>
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
   <div id="wrap">
@@ -20,13 +20,14 @@
       <canvas id="game" width="640" height="480"></canvas>
 
       <div id="screen-title" class="screen">
+        <p class="eyebrow">NOW LOADING</p>
         <h1>GENX ARCADE</h1>
         <p class="sub">twelve classics. one quarter.</p>
         <div class="levelist" id="level-list"></div>
-        <p class="prompt blink">PRESS ENTER TO START</p>
+        <p class="prompt blink">CLICK A GAME TO PLAY</p>
         <button class="menu-btn" data-key="Enter">START</button>
         <p id="title-highscore" class="sub"></p>
-        <p class="controls">UP/DOWN choose game &middot; ENTER start &middot; M mute</p>
+        <p class="controls">CLICK/TAP A GAME &middot; OR ARROWS + ENTER &middot; M MUTE</p>
       </div>
 
       <div id="screen-levelcomplete" class="screen hidden">
@@ -102,18 +103,18 @@
   <script src="levels/commando.js"></script>
   <script src="levels/tetris.js"></script>
   <script>
-    Game.registerLevel('STARBLASTER', createShooterLevel, 'shooter');
-    Game.registerLevel('CRATE RUNNER', createPlatformerLevel, 'platformer');
-    Game.registerLevel('WALL SMASH', createBreakoutLevel, 'breakout');
-    Game.registerLevel('MAZE MUNCH', createMazeLevel, 'maze');
-    Game.registerLevel('BYTE CHASER', createSnakeLevel, 'snake');
-    Game.registerLevel('REFLEX RUSH', createWhackAMoleLevel, 'reflex');
-    Game.registerLevel('TURBO DODGE', createRacingLevel, 'racing');
-    Game.registerLevel("HERO'S TRIAL", createZeldaLevel, 'dungeon');
-    Game.registerLevel('SILVER TILT', createPinballLevel, 'pinball');
-    Game.registerLevel('HOP HAZARD', createFroggerLevel, 'frogger');
-    Game.registerLevel('OPERATION VIPER', createCommandoLevel, 'run-n-gun');
-    Game.registerLevel('BLOCK CASCADE', createTetrisLevel, 'puzzle');
+    Game.registerLevel('STARBLASTER', createShooterLevel, 'shooter', 'Blast the alien invasion.');
+    Game.registerLevel('CRATE RUNNER', createPlatformerLevel, 'platformer', 'Run, jump, stomp to the flag.');
+    Game.registerLevel('WALL SMASH', createBreakoutLevel, 'breakout', 'Break every brick on the board.');
+    Game.registerLevel('MAZE MUNCH', createMazeLevel, 'maze', 'Gobble dots, dodge ghosts.');
+    Game.registerLevel('BYTE CHASER', createSnakeLevel, 'snake', "Grow long, don't bite yourself.");
+    Game.registerLevel('REFLEX RUSH', createWhackAMoleLevel, 'reflex', 'Whack moles, dodge bombs.');
+    Game.registerLevel('TURBO DODGE', createRacingLevel, 'racing', 'Weave through oncoming traffic.');
+    Game.registerLevel("HERO'S TRIAL", createZeldaLevel, 'dungeon', 'Clear the dungeon, beat the boss.');
+    Game.registerLevel('SILVER TILT', createPinballLevel, 'pinball', 'Keep the ball in play.');
+    Game.registerLevel('HOP HAZARD', createFroggerLevel, 'frogger', 'Cross the road and the river.');
+    Game.registerLevel('OPERATION VIPER', createCommandoLevel, 'run-n-gun', 'Fight through enemy lines.');
+    Game.registerLevel('BLOCK CASCADE', createTetrisLevel, 'puzzle', 'Clear lines before they stack up.');
     Game.boot();
   </script>
 </body>
