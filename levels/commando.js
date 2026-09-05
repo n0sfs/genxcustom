@@ -41,7 +41,7 @@ function createCommandoLevel(api) {
 
   const extraction = { x: WORLD_W - 70, y: GROUND_Y - 90, w: 50, h: 90 };
 
-  let player, bullets, enemyBullets, grunts, turrets, choppers, crates, powerups, particles, camX, extractionOpen;
+  let player, bullets, enemyBullets, grunts, turrets, choppers, crates, powerups, particles, popups, camX, extractionOpen;
 
   function burst(x, y, color, n) {
     for (let i = 0; i < n; i++) {
@@ -60,10 +60,12 @@ function createCommandoLevel(api) {
       player = {
         x: 40, y: GROUND_Y - 40, w: 20, h: 40,
         facing: { dx: 1, dy: 0 }, shotCooldown: 0, invuln: 1, hitFlash: 0, rapidTimer: 0,
+        killStreak: 0, killStreakTimer: 0,
       };
       bullets = [];
       enemyBullets = [];
       particles = [];
+      popups = [];
       powerups = [];
       camX = 0;
       extractionOpen = false;
@@ -83,6 +85,8 @@ function createCommandoLevel(api) {
       player.hitFlash = Math.max(0, player.hitFlash - dt);
       player.shotCooldown = Math.max(0, player.shotCooldown - dt);
       player.rapidTimer = Math.max(0, player.rapidTimer - dt);
+      player.killStreakTimer = Math.max(0, player.killStreakTimer - dt);
+      if (player.killStreakTimer <= 0) player.killStreak = 0;
 
       let mvx = 0, mvy = 0;
       if (isDown('ArrowLeft', 'a')) mvx = -1;
@@ -92,6 +96,8 @@ function createCommandoLevel(api) {
       if (mvx || mvy) player.facing = normalize(mvx, mvy);
       player.x += mvx * PLAYER_SPEED * dt;
       player.x = Math.max(0, Math.min(WORLD_W - player.w, player.x));
+      // difficulty ramps gently the deeper the player pushes into the level
+      const progress = Math.max(0, Math.min(1, player.x / WORLD_W));
 
       if (isDown('Space') && player.shotCooldown <= 0) {
         player.shotCooldown = player.rapidTimer > 0 ? SHOT_COOLDOWN * 0.4 : SHOT_COOLDOWN;
@@ -110,7 +116,7 @@ function createCommandoLevel(api) {
         if (e.x < e.range[0] || e.x + e.w > e.range[1]) e.dir *= -1;
         e.fireTimer -= dt;
         if (e.fireTimer <= 0 && Math.abs((e.x + e.w / 2) - (player.x + player.w / 2)) < 420) {
-          e.fireTimer = 1.4 + Math.random() * 0.6;
+          e.fireTimer = (1.4 + Math.random() * 0.6) * (1 - 0.3 * progress);
           const dir = player.x < e.x ? -1 : 1;
           enemyBullets.push({ x: e.x + e.w / 2, y: e.y + e.h / 2, vx: dir * 260, vy: 0, w: 6, h: 3 });
         }
@@ -119,7 +125,7 @@ function createCommandoLevel(api) {
       turrets.filter((e) => e.alive).forEach((e) => {
         e.fireTimer -= dt;
         if (e.fireTimer <= 0 && Math.abs((e.x + e.w / 2) - (player.x + player.w / 2)) < 520) {
-          e.fireTimer = 1.7 + Math.random() * 0.6;
+          e.fireTimer = (1.7 + Math.random() * 0.6) * (1 - 0.3 * progress);
           const dir = player.x < e.x ? -1 : 1;
           enemyBullets.push({ x: e.x + e.w / 2, y: e.y + 10, vx: dir * 240, vy: 0, w: 6, h: 3 });
         }
@@ -130,7 +136,7 @@ function createCommandoLevel(api) {
         if (e.x < e.range[0] || e.x + e.w > e.range[1]) e.dir *= -1;
         e.fireTimer -= dt;
         if (e.fireTimer <= 0 && Math.abs((e.x + e.w / 2) - (player.x + player.w / 2)) < 260) {
-          e.fireTimer = 1.1 + Math.random() * 0.6;
+          e.fireTimer = (1.1 + Math.random() * 0.6) * (1 - 0.3 * progress);
           enemyBullets.push({ x: e.x + e.w / 2, y: e.y + e.h, vx: 0, vy: 220, w: 4, h: 8 });
         }
       });
@@ -141,20 +147,34 @@ function createCommandoLevel(api) {
       particles.forEach((p) => { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; });
       particles = particles.filter((p) => p.life > 0);
 
+      popups.forEach((p) => { p.y -= 20 * dt; p.life -= dt; });
+      popups = popups.filter((p) => p.life > 0);
+
       const targets = aliveEnemies();
       bullets.forEach((b) => {
         if (b.hit) return;
         for (const e of targets) {
-          if (rectsOverlap(b, e)) {
-            e.alive = false;
-            b.hit = true;
-            const score = choppers.includes(e) ? 25 : turrets.includes(e) ? 20 : 15;
-            addScore(score);
-            burst(e.x + e.w / 2, e.y + e.h / 2, '#ff9a4f', 9);
-            sfx('explosion');
-            shake(0.08, 2);
-            break;
+          // guard against a single enemy already killed earlier this same frame
+          // (by another bullet) from being scored a second time
+          if (!e.alive || !rectsOverlap(b, e)) continue;
+          e.alive = false;
+          b.hit = true;
+          const isChopper = choppers.includes(e);
+          const isTurret = turrets.includes(e);
+          const bigTarget = isChopper || isTurret;
+          const baseScore = isChopper ? 25 : isTurret ? 20 : 15;
+          player.killStreak = player.killStreakTimer > 0 ? player.killStreak + 1 : 1;
+          player.killStreakTimer = 2.2;
+          const streakBonus = Math.min(player.killStreak - 1, 6) * 5;
+          addScore(baseScore + streakBonus);
+          burst(e.x + e.w / 2, e.y + e.h / 2, '#ff9a4f', bigTarget ? 14 : 9);
+          sfx('explosion');
+          shake(bigTarget ? 0.14 : 0.08, bigTarget ? 3.5 : 2);
+          if (player.killStreak > 1) {
+            popups.push({ x: e.x + e.w / 2, y: e.y - 6, life: 0.7, text: `+${baseScore + streakBonus} x${player.killStreak}` });
           }
+          if (player.killStreak > 0 && player.killStreak % 3 === 0) sfx('pickup');
+          break;
         }
       });
       bullets = bullets.filter((b) => !b.hit);
@@ -198,9 +218,13 @@ function createCommandoLevel(api) {
         }
       }
 
-      if (aliveEnemies().length === 0) extractionOpen = true;
+      if (!extractionOpen && aliveEnemies().length === 0) {
+        extractionOpen = true;
+        sfx('select');
+      }
 
       if (extractionOpen && rectsOverlap(player, extraction)) {
+        sfx('launch');
         winLevel(60);
         return;
       }
@@ -377,6 +401,16 @@ function createCommandoLevel(api) {
         ctx.globalAlpha = 1;
       });
 
+      ctx.font = 'bold 9px monospace';
+      ctx.textAlign = 'center';
+      popups.forEach((p) => {
+        ctx.fillStyle = '#ffd24f';
+        ctx.globalAlpha = Math.max(0, p.life / 0.7);
+        ctx.fillText(p.text, p.x, p.y);
+        ctx.globalAlpha = 1;
+      });
+      ctx.textAlign = 'left';
+
       const flip = player.facing.dx < 0;
       FX.shadow(ctx, player.x + player.w / 2, player.y + player.h + 3, player.w / 2, 3, 0.3);
       const playerBody = (player.hitFlash > 0 && Math.floor(player.hitFlash * 20) % 2 === 0) ? '#ff5c5c' : '#2a5a7a';
@@ -425,6 +459,10 @@ function createCommandoLevel(api) {
       if (player.rapidTimer > 0) {
         ctx.fillStyle = '#ffd24f';
         ctx.fillText('RAPID FIRE!', W - 80, 16);
+      }
+      if (player.killStreak > 1 && player.killStreakTimer > 0) {
+        ctx.fillStyle = '#ff9a4f';
+        ctx.fillText(`STREAK x${player.killStreak}`, 8, 28);
       }
     },
   };

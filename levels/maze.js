@@ -57,6 +57,7 @@ function createMazeLevel(api) {
   const DIRS = [{ dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 }];
 
   let grid, dots, powerPellets, player, ghosts, mouthPhase, frightTimer, ghostChain;
+  let hasStarted, totalCollectibles;
 
   // Movement uses a cell + progress-fraction model: a mover sits at (col,row)
   // and, while `dir` is nonzero, `t` (0..1) tracks progress toward the next
@@ -102,32 +103,48 @@ function createMazeLevel(api) {
 
   return {
     init() {
-      grid = buildMaze();
-      dots = new Set();
-      for (let r = 0; r < ROWS; r++) {
-        for (let c = 0; c < COLS; c++) {
-          if (grid[r][c] === 0) dots.add(`${c},${r}`);
+      if (!hasStarted) {
+        // First-ever init for this instance. A retry after losing a life
+        // re-calls init() on this SAME instance (see game.js), so the maze,
+        // dots and pellets built here are left untouched below on a respawn —
+        // getting caught by a ghost sends you back to start, but doesn't wipe
+        // out all the dots you already cleared or reroll a brand new maze.
+        hasStarted = true;
+        grid = buildMaze();
+        dots = new Set();
+        for (let r = 0; r < ROWS; r++) {
+          for (let c = 0; c < COLS; c++) {
+            if (grid[r][c] === 0) dots.add(`${c},${r}`);
+          }
         }
-      }
-      dots.delete('1,13');
-      dots.delete('17,1');
-      dots.delete('9,7');
+        dots.delete('1,13');
+        dots.delete('17,1');
+        dots.delete('9,7');
 
-      powerPellets = new Set();
-      POWER_CELLS.forEach(([c, r]) => {
-        const key = `${c},${r}`;
-        if (dots.has(key)) {
-          dots.delete(key);
-          powerPellets.add(key);
-        }
-      });
+        powerPellets = new Set();
+        POWER_CELLS.forEach(([c, r]) => {
+          const key = `${c},${r}`;
+          if (dots.has(key)) {
+            dots.delete(key);
+            powerPellets.add(key);
+          }
+        });
+        totalCollectibles = dots.size + powerPellets.size;
+
+        ghosts = [
+          Object.assign(makeMover(17, 1, 3.6), { color: '#ff4fa3', spawn: [17, 1], respawnDelay: 0, baseSpeed: 3.6 }),
+          Object.assign(makeMover(9, 7, 3.7), { color: '#4fe3d0', spawn: [9, 7], respawnDelay: 0, baseSpeed: 3.7 }),
+        ];
+      } else {
+        ghosts.forEach((g) => {
+          g.col = g.spawn[0]; g.row = g.spawn[1];
+          g.dir = { dx: 0, dy: 0 }; g.t = 0;
+          g.respawnDelay = 0;
+        });
+      }
 
       player = makeMover(1, 13, 4.4);
       player.nextDir = { dx: 0, dy: 0 };
-      ghosts = [
-        Object.assign(makeMover(17, 1, 3.6), { color: '#ff4fa3', spawn: [17, 1], respawnDelay: 0, baseSpeed: 3.6 }),
-        Object.assign(makeMover(9, 7, 3.7), { color: '#4fe3d0', spawn: [9, 7], respawnDelay: 0, baseSpeed: 3.7 }),
-      ];
       mouthPhase = 0;
       frightTimer = 0;
       ghostChain = 0;
@@ -163,19 +180,27 @@ function createMazeLevel(api) {
         sfx('pickup');
       }
 
+      // Difficulty ramps up as the board clears: ghosts get faster and more
+      // relentless about chasing (less random wandering) the fewer dots are
+      // left, so the finish of a maze has real tension instead of staying flat.
+      const remaining = dots.size + powerPellets.size;
+      const clearProgress = totalCollectibles > 0 ? 1 - remaining / totalCollectibles : 0;
+      const aggroSpeedMult = 1 + clearProgress * 0.35;
+      const wanderChance = Math.max(0.08, 0.25 - clearProgress * 0.17);
+
       ghosts.forEach((g) => {
         if (g.respawnDelay > 0) {
           g.respawnDelay = Math.max(0, g.respawnDelay - dt);
           return;
         }
-        g.speed = frightTimer > 0 ? g.baseSpeed * 0.55 : g.baseSpeed;
+        g.speed = frightTimer > 0 ? g.baseSpeed * 0.55 : g.baseSpeed * aggroSpeedMult;
         stepMover(g, dt, (col, row, curDir) => {
           const options = DIRS.filter((d) => {
             if (d.dx === -curDir.dx && d.dy === -curDir.dy && (curDir.dx || curDir.dy)) return false;
             return isOpen(grid, col + d.dx, row + d.dy);
           });
           if (!options.length) return { dx: -curDir.dx, dy: -curDir.dy };
-          if (frightTimer > 0 || Math.random() < 0.25) return options[Math.floor(Math.random() * options.length)];
+          if (frightTimer > 0 || Math.random() < wanderChance) return options[Math.floor(Math.random() * options.length)];
           options.sort((a, b) => {
             const da = Math.hypot(col + a.dx - player.col, row + a.dy - player.row);
             const db = Math.hypot(col + b.dx - player.col, row + b.dy - player.row);
@@ -195,6 +220,12 @@ function createMazeLevel(api) {
             addScore(50 * Math.pow(2, Math.min(ghostChain - 1, 3)));
             sfx('explosion');
             shake(0.1, 3);
+            if (ghostChain >= ghosts.length) {
+              // Cleared every ghost on the board during one power pellet —
+              // a little extra reward for the perfect combo.
+              addScore(100);
+              shake(0.2, 6);
+            }
             g.col = g.spawn[0]; g.row = g.spawn[1];
             g.dir = { dx: 0, dy: 0 }; g.t = 0;
             g.respawnDelay = 1.4;

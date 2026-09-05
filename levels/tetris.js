@@ -53,7 +53,7 @@ function createTetrisLevel(api) {
   };
   const TYPES = Object.keys(SHAPES);
 
-  let board, piece, nextType, bag, fallTimer, fallInterval, linesCleared, particles;
+  let board, piece, nextType, bag, fallTimer, fallInterval, linesCleared, particles, combo;
   let leftPrev, rightPrev, leftHeld, rightHeld, leftRepeat, rightRepeat, rotPrev, dropPrev;
 
   function drawBag() {
@@ -87,10 +87,16 @@ function createTetrisLevel(api) {
 
   function tryRotate() {
     const p2 = { ...piece, r: (piece.r + 1) % 4 };
-    for (const k of [0, -1, 1, -2, 2]) {
-      const p3 = { ...p2, x: p2.x + k };
-      if (canPlace(p3)) { piece = p3; sfx('bounce'); return; }
+    // Try same-row kicks first, then a one-row upward kick — lets a
+    // rotation succeed when pinned against the floor or a stack instead
+    // of just silently failing (the classic "rotation didn't respond" feel).
+    for (const dy of [0, -1]) {
+      for (const dx of [0, -1, 1, -2, 2]) {
+        const p3 = { ...p2, x: p2.x + dx, y: p2.y + dy };
+        if (canPlace(p3)) { piece = p3; sfx('bounce'); return true; }
+      }
     }
+    return false;
   }
 
   function burst(x, y, color) {
@@ -165,6 +171,17 @@ function createTetrisLevel(api) {
     ctx.stroke();
   }
 
+  // If the piece is resting on the stack, a deliberate move/rotate buys
+  // back some of the fall timer instead of letting it lock the instant the
+  // countdown hits — a light, bounded lock-delay so a last-second slide-in
+  // doesn't get cut off unfairly. Only called from discrete taps (not the
+  // held-key auto-repeat), so it can't be exploited to stall forever.
+  function refreshLockDelay() {
+    if (!canPlace({ ...piece, y: piece.y + 1 })) {
+      fallTimer = Math.min(fallTimer, fallInterval * 0.35);
+    }
+  }
+
   function spawnPiece() {
     const type = nextType;
     nextType = drawBag();
@@ -178,17 +195,23 @@ function createTetrisLevel(api) {
     });
     const cleared = clearLines();
     if (cleared > 0) {
-      addScore(CLEAR_SCORES[Math.min(cleared, 4)]);
+      const comboBonus = combo > 0 ? combo * 15 : 0;
+      addScore(CLEAR_SCORES[Math.min(cleared, 4)] + comboBonus);
+      combo++;
       linesCleared += cleared;
-      sfx(cleared >= 4 ? 'levelclear' : 'hit');
-      shake(0.1, cleared >= 4 ? 4 : 2);
-      fallInterval = Math.max(0.15, 0.8 - Math.floor(linesCleared / 3) * 0.07);
+      sfx(cleared >= 4 ? 'levelclear' : 'pickup');
+      if (combo > 1) sfx('bumper');
+      shake(0.1 + cleared * 0.03, 2 + cleared * 1.5);
+      // Smooth, continuous ramp instead of a stepped one every 3 lines —
+      // avoids the flat "nothing changed" stretch between speed bumps.
+      fallInterval = Math.max(0.15, 0.8 - linesCleared * 0.035);
       if (linesCleared >= TARGET_LINES) {
         winLevel(50);
         return;
       }
     } else {
-      sfx('bounce');
+      combo = 0;
+      sfx('hit');
     }
     spawnPiece();
     if (!canPlace(piece)) {
@@ -204,6 +227,7 @@ function createTetrisLevel(api) {
       spawnPiece();
       fallInterval = 0.8;
       linesCleared = 0;
+      combo = 0;
       particles = [];
       leftPrev = rightPrev = rotPrev = dropPrev = false;
       leftHeld = rightHeld = leftRepeat = rightRepeat = 0;
@@ -217,7 +241,7 @@ function createTetrisLevel(api) {
       const dropDown = isDown('Space');
 
       if (leftDown) {
-        if (!leftPrev) { tryMove(-1, 0); leftHeld = 0; leftRepeat = 0; }
+        if (!leftPrev) { tryMove(-1, 0); leftHeld = 0; leftRepeat = 0; refreshLockDelay(); }
         else {
           leftHeld += dt;
           if (leftHeld > 0.28) { leftRepeat += dt; if (leftRepeat > 0.05) { leftRepeat = 0; tryMove(-1, 0); } }
@@ -226,7 +250,7 @@ function createTetrisLevel(api) {
       leftPrev = leftDown;
 
       if (rightDown) {
-        if (!rightPrev) { tryMove(1, 0); rightHeld = 0; rightRepeat = 0; }
+        if (!rightPrev) { tryMove(1, 0); rightHeld = 0; rightRepeat = 0; refreshLockDelay(); }
         else {
           rightHeld += dt;
           if (rightHeld > 0.28) { rightRepeat += dt; if (rightRepeat > 0.05) { rightRepeat = 0; tryMove(1, 0); } }
@@ -236,7 +260,7 @@ function createTetrisLevel(api) {
 
       const rotatePressed = rotateDown && !rotPrev;
       rotPrev = rotateDown;
-      if (rotatePressed) tryRotate();
+      if (rotatePressed && tryRotate()) refreshLockDelay();
 
       const dropPressed = dropDown && !dropPrev;
       dropPrev = dropDown;
@@ -252,7 +276,9 @@ function createTetrisLevel(api) {
       fallTimer += dt * (downDown ? 9 : 1);
       if (fallTimer >= fallInterval) {
         fallTimer = 0;
-        if (!tryMove(0, 1)) lockPiece();
+        const fell = tryMove(0, 1);
+        if (!fell) lockPiece();
+        else if (downDown) addScore(1);
       }
 
       particles.forEach((p) => { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; });
@@ -336,6 +362,10 @@ function createTetrisLevel(api) {
 
       ctx.fillStyle = '#e8ecff';
       ctx.fillText(`LINES ${linesCleared}/${TARGET_LINES}`, sideX, 130);
+      if (combo > 1) {
+        ctx.fillStyle = '#ffd24f';
+        ctx.fillText(`COMBO x${combo}`, sideX, 144);
+      }
       ctx.fillStyle = '#7d86a3';
       ctx.font = '8px monospace';
       ctx.fillText('LEFT/RIGHT MOVE', sideX, 160);

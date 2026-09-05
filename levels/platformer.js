@@ -1,17 +1,20 @@
 function createPlatformerLevel(api) {
-  const { W, H, isDown, addScore, loseLife, winLevel, sfx } = api;
+  const { W, H, isDown, addScore, loseLife, winLevel, sfx, shake } = api;
 
   const GRAVITY = 1500;
   const MOVE_SPEED = 200;
   const JUMP_VEL = -520;
   const GROUND_Y = H - 40;
+  const COYOTE_TIME = 0.09;
+  const JUMP_BUFFER = 0.12;
+  const FALL_IMPACT_VY = 900;
 
   const platforms = [
     { x: 0, y: GROUND_Y, w: 300, h: 40 },
     { x: 380, y: GROUND_Y, w: 220, h: 40 },
     { x: 660, y: GROUND_Y - 70, w: 140, h: 20 },
     { x: 860, y: GROUND_Y, w: 260, h: 40 },
-    { x: 1180, y: GROUND_Y - 100, w: 120, h: 20 },
+    { x: 1180, y: GROUND_Y - 70, w: 120, h: 20 },
     { x: 1360, y: GROUND_Y - 40, w: 120, h: 20 },
     { x: 1540, y: GROUND_Y, w: 260, h: 40 },
     { x: 1860, y: GROUND_Y - 60, w: 100, h: 20 },
@@ -35,6 +38,7 @@ function createPlatformerLevel(api) {
   ];
 
   let player, camX, enemies, coinList, onGround, spawnX, spawnY, particles, jumpKeyPrev;
+  let hasStarted, checkpoint, coyoteTimer, jumpBufferTimer, stompChain;
 
   function drawHero(ctx, p) {
     const cx = p.x + p.w / 2;
@@ -118,14 +122,31 @@ function createPlatformerLevel(api) {
 
   return {
     init() {
-      spawnX = 20; spawnY = GROUND_Y - 28;
+      if (!hasStarted) {
+        // First-ever init for this instance: full fresh start. A retry after
+        // losing a life re-calls init() on this SAME instance (see game.js),
+        // so anything not reset here (enemies, coins, checkpoint) survives a
+        // death — dying mid-level sends you back to your last checkpoint,
+        // not all the way to the start with everything undone.
+        hasStarted = true;
+        checkpoint = null;
+        enemies = enemySpawns.map((s, i) => ({
+          x: s.x, y: GROUND_Y - 18, w: 20, h: 18, dir: 1, range: s.range, alive: true,
+          speed: 55 + i * 15, // gentle ramp: later enemies patrol a bit faster
+        }));
+        coinList = coins.map((c) => ({ ...c, taken: false }));
+      }
+
+      spawnX = checkpoint ? checkpoint.x : 20;
+      spawnY = checkpoint ? checkpoint.y : GROUND_Y - 28;
       resetPlayer();
-      camX = 0;
+      camX = Math.max(0, Math.min(WORLD_END - W, spawnX - W / 2));
       onGround = true;
-      enemies = enemySpawns.map((s) => ({ x: s.x, y: GROUND_Y - 18, w: 20, h: 18, dir: 1, range: s.range, alive: true }));
-      coinList = coins.map((c) => ({ ...c, taken: false }));
       particles = [];
       jumpKeyPrev = false;
+      coyoteTimer = 0;
+      jumpBufferTimer = 0;
+      stompChain = 0;
     },
 
     update(dt) {
@@ -135,18 +156,32 @@ function createPlatformerLevel(api) {
       if (player.vx > 0) player.facing = 1;
       else if (player.vx < 0) player.facing = -1;
       player.animT += dt * (player.vx !== 0 ? 10 : 3);
+
+      // Coyote time: a short grace window after walking off a ledge where a
+      // ground-strength jump is still allowed, so near-miss timing at platform
+      // edges doesn't feel like an unfair instant fall.
+      coyoteTimer = onGround ? COYOTE_TIME : Math.max(0, coyoteTimer - dt);
+
       const jumpKeyDown = isDown('ArrowUp', 'w', 'Space');
       const jumpPressed = jumpKeyDown && !jumpKeyPrev;
       jumpKeyPrev = jumpKeyDown;
-      if (jumpPressed) {
-        if (onGround) {
+      // Jump buffering: remember a jump press for a brief window so pressing
+      // jump slightly before landing still fires the moment you touch down.
+      if (jumpPressed) jumpBufferTimer = JUMP_BUFFER;
+      else jumpBufferTimer = Math.max(0, jumpBufferTimer - dt);
+
+      if (jumpBufferTimer > 0) {
+        if (coyoteTimer > 0) {
           player.vy = JUMP_VEL;
           onGround = false;
+          coyoteTimer = 0;
+          jumpBufferTimer = 0;
           player.jumpsUsed = 1;
           sfx('jump');
         } else if (player.jumpsUsed < 2) {
           player.vy = JUMP_VEL * 0.85;
           player.jumpsUsed = 2;
+          jumpBufferTimer = 0;
           sfx('jump');
           burst(player.x + player.w / 2, player.y + player.h, '#4fe3d0');
         }
@@ -162,9 +197,17 @@ function createPlatformerLevel(api) {
           const feetPrev = player.y + player.h - player.vy * dt;
           if (player.vy >= 0 && feetPrev <= p.y && player.y + player.h >= p.y) {
             player.y = p.y - player.h;
+            if (player.vy > FALL_IMPACT_VY) {
+              sfx('bounce');
+              shake(0.08, 2);
+            }
             player.vy = 0;
             onGround = true;
             player.jumpsUsed = 0;
+            stompChain = 0;
+            if (!checkpoint || player.x > checkpoint.x) {
+              checkpoint = { x: player.x, y: player.y };
+            }
           }
         }
       }
@@ -174,12 +217,13 @@ function createPlatformerLevel(api) {
       particles = particles.filter((pt) => pt.life > 0);
 
       if (player.y > H + 100) {
+        stompChain = 0;
         loseLife();
         return;
       }
 
       enemies.filter((e) => e.alive).forEach((e) => {
-        e.x += e.dir * 60 * dt;
+        e.x += e.dir * e.speed * dt;
         if (e.x < e.range[0] || e.x + e.w > e.range[1]) e.dir *= -1;
       });
 
@@ -191,9 +235,19 @@ function createPlatformerLevel(api) {
             e.alive = false;
             player.vy = JUMP_VEL * 0.6;
             player.jumpsUsed = 0;
-            addScore(20);
-            sfx('hit');
+            stompChain++;
+            const mult = Math.min(stompChain, 5);
+            addScore(20 + (mult - 1) * 15);
+            burst(e.x + e.w / 2, e.y + e.h / 2, '#ff4fa3');
+            if (stompChain >= 3) {
+              sfx('explosion');
+              shake(0.15, 5);
+            } else {
+              sfx('hit');
+              shake(0.08, 3);
+            }
           } else {
+            stompChain = 0;
             loseLife();
             return;
           }

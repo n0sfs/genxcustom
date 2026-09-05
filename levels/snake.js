@@ -1,5 +1,5 @@
 function createSnakeLevel(api) {
-  const { W, H, isDown, addScore, loseLife, winLevel, sfx } = api;
+  const { W, H, isDown, addScore, loseLife, winLevel, sfx, shake } = api;
 
   const CELL = 20;
   const COLS = W / CELL;
@@ -8,8 +8,9 @@ function createSnakeLevel(api) {
   const MIN_STEP = 0.058;
   const WIN_LENGTH = 16;
   const GOLDEN_LIFE = 4;
+  const STREAK_WINDOW = 2.6;
 
-  let snake, dir, nextDir, food, timer, alive, golden, goldenTimer;
+  let snake, dir, nextDir, food, timer, alive, golden, goldenTimer, eatStreak, streakTimer;
 
   function randomFood() {
     let cell;
@@ -62,6 +63,8 @@ function createSnakeLevel(api) {
       food = randomFood();
       golden = false;
       goldenTimer = 0;
+      eatStreak = 0;
+      streakTimer = 0;
       timer = 0;
       alive = true;
     },
@@ -79,6 +82,11 @@ function createSnakeLevel(api) {
         if (goldenTimer <= 0) golden = false;
       }
 
+      if (eatStreak > 0) {
+        streakTimer -= dt;
+        if (streakTimer <= 0) eatStreak = 0;
+      }
+
       const stepTime = Math.max(MIN_STEP, BASE_STEP - snake.length * 0.0035);
       timer += dt;
       if (timer < stepTime) return;
@@ -86,20 +94,37 @@ function createSnakeLevel(api) {
 
       dir = nextDir;
       const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
+      const willEat = head.x === food.x && head.y === food.y;
+      // Exclude the tail cell from the collision check when it isn't
+      // growing this step — the tail vacates that cell in the same move,
+      // so moving into it is legal (classic snake rule). Without this the
+      // snake dies "for no reason" chasing its own tail.
+      const body = willEat ? snake : snake.slice(0, -1);
 
       if (head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS ||
-          snake.some((s) => s.x === head.x && s.y === head.y)) {
+          body.some((s) => s.x === head.x && s.y === head.y)) {
         alive = false;
+        sfx('hurt');
+        shake(0.2, 5);
         loseLife();
         return;
       }
 
       snake.unshift(head);
-      if (head.x === food.x && head.y === food.y) {
-        addScore(golden ? 20 : 6);
+      if (willEat) {
+        streakTimer = STREAK_WINDOW;
+        eatStreak++;
+        const streakBonus = Math.min(eatStreak - 1, 8) * 2;
+        addScore((golden ? 20 : 6) + streakBonus);
         sfx('pickup');
+        if (eatStreak > 1 && eatStreak % 3 === 0) {
+          sfx('jump');
+          shake(0.12, 3);
+        }
+        if (snake.length % 4 === 0) shake(0.1, 2);
         if (snake.length >= WIN_LENGTH) {
-          winLevel(40);
+          shake(0.25, 5);
+          winLevel(40 + streakBonus);
           return;
         }
         food = randomFood();
@@ -176,6 +201,10 @@ function createSnakeLevel(api) {
       ctx.fillStyle = '#e8ecff';
       ctx.font = '9px monospace';
       ctx.fillText(`LENGTH ${snake.length}/${WIN_LENGTH}`, 8, 16);
+      if (eatStreak >= 2) {
+        ctx.fillStyle = '#ffd24f';
+        ctx.fillText(`STREAK x${eatStreak}`, 8, 28);
+      }
     },
   };
 }

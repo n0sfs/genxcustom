@@ -22,6 +22,8 @@ function createWhackAMoleLevel(api) {
   }
 
   let score, misses, activeHole, moleTimer, gapTimer, phase, prevKeys, popScale, hitFlash, isBomb, bombFlash;
+  let streak, streakTimer, consecutiveBombs, popups;
+  const STREAK_WINDOW = 1.6;
 
   function scheduleGap() {
     phase = 'gap';
@@ -32,7 +34,12 @@ function createWhackAMoleLevel(api) {
   function spawnMole() {
     phase = 'up';
     activeHole = Math.floor(Math.random() * holes.length);
-    isBomb = Math.random() < BOMB_CHANCE;
+    const progress = Math.min(1, score / TARGET_SCORE);
+    const bombChance = Math.min(0.35, BOMB_CHANCE + progress * 0.12);
+    // pity rule: never more than two bombs in a row, so a run of bad luck
+    // can't chain into an unavoidable string of misses
+    isBomb = consecutiveBombs < 2 && Math.random() < bombChance;
+    consecutiveBombs = isBomb ? consecutiveBombs + 1 : 0;
     const upTime = Math.max(UP_TIME_MIN, UP_TIME_START - score * 0.02);
     moleTimer = upTime;
     popScale = 0;
@@ -46,12 +53,20 @@ function createWhackAMoleLevel(api) {
       hitFlash = 0;
       bombFlash = 0;
       isBomb = false;
+      streak = 0;
+      streakTimer = 0;
+      consecutiveBombs = 0;
+      popups = [];
       scheduleGap();
     },
 
     update(dt) {
       hitFlash = Math.max(0, hitFlash - dt);
       bombFlash = Math.max(0, bombFlash - dt);
+      streakTimer = Math.max(0, streakTimer - dt);
+      if (streakTimer <= 0) streak = 0;
+      popups.forEach((p) => { p.y -= 18 * dt; p.life -= dt; });
+      popups = popups.filter((p) => p.life > 0);
       const justPressed = {};
       KEYS.forEach((k) => {
         const down = isDown(k);
@@ -75,6 +90,8 @@ function createWhackAMoleLevel(api) {
           if (isBomb) {
             misses += 2;
             bombFlash = 0.2;
+            streak = 0;
+            streakTimer = 0;
             sfx('explosion');
             shake(0.15, 4);
             if (misses >= MISS_LIMIT) {
@@ -82,10 +99,18 @@ function createWhackAMoleLevel(api) {
               return;
             }
           } else {
-            score += 3;
-            addScore(3);
+            streak = streakTimer > 0 ? streak + 1 : 1;
+            streakTimer = STREAK_WINDOW;
+            const comboBonus = Math.min(streak - 1, 4);
+            const gained = 3 + comboBonus;
+            score += gained;
+            addScore(gained);
             hitFlash = 0.15;
             sfx('hit');
+            if (streak > 1) {
+              popups.push({ x: holes[activeHole].x, y: holes[activeHole].y - 20, life: 0.6, text: `+${gained} x${streak}` });
+            }
+            if (streak > 0 && streak % 4 === 0) sfx('pickup');
             if (score >= TARGET_SCORE) {
               winLevel(30);
               return;
@@ -99,6 +124,8 @@ function createWhackAMoleLevel(api) {
       if (moleTimer <= 0) {
         if (!isBomb) {
           misses++;
+          streak = 0;
+          streakTimer = 0;
           sfx('bounce');
           if (misses >= MISS_LIMIT) {
             loseLife();
@@ -210,11 +237,25 @@ function createWhackAMoleLevel(api) {
         ctx.textAlign = 'left';
       });
 
+      ctx.font = 'bold 10px monospace';
+      ctx.textAlign = 'center';
+      popups.forEach((p) => {
+        ctx.fillStyle = '#ffd24f';
+        ctx.globalAlpha = Math.max(0, p.life / 0.6);
+        ctx.fillText(p.text, p.x, p.y);
+        ctx.globalAlpha = 1;
+      });
+      ctx.textAlign = 'left';
+
       ctx.fillStyle = '#ffd24f';
       ctx.font = '10px monospace';
       ctx.fillText(`SCORE ${score}/${TARGET_SCORE}`, 12, 24);
       ctx.fillStyle = '#ff5c5c';
       ctx.fillText(`MISSES ${misses}/${MISS_LIMIT}`, 12, 40);
+      if (streak > 1 && streakTimer > 0) {
+        ctx.fillStyle = '#ff9a4f';
+        ctx.fillText(`STREAK x${streak}`, 12, 56);
+      }
       ctx.fillStyle = '#7d86a3';
       ctx.font = '8px monospace';
       ctx.fillText('WHACK MOLES, DODGE BOMBS', 12, H - 12);

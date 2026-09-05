@@ -5,9 +5,12 @@ function createRacingLevel(api) {
   const PLAYER_W = 34, PLAYER_H = 52;
   const DISTANCE_TARGET = 1600;
   const BOOST_TIME = 2.5;
+  const MOVE_SPEED = 260;
+  const NEAR_MISS_GAP = 14;
   const CAR_COLORS = ['#ff4fa3', '#ffd24f', '#8f8fff', '#ff9a4f'];
 
   let player, obstacles, pickups, distance, speed, spawnTimer, fuelTimer, boostTimer, dashOffset, scoreTick, particles;
+  let lastSpawnX, lastSpawnInterval, nearMissStreak, popups;
 
   function burst(x, y, color) {
     for (let i = 0; i < 6; i++) {
@@ -112,8 +115,22 @@ function createRacingLevel(api) {
 
   function spawnObstacle() {
     const w = 34, h = 52;
-    const x = ROAD_X + 14 + Math.random() * (ROAD_W - w - 28);
-    obstacles.push({ x, y: -h, w, h, color: CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)] });
+    const minX = ROAD_X + 14, maxX = ROAD_X + ROAD_W - w - 14;
+    let x;
+    if (lastSpawnX === null) {
+      x = minX + Math.random() * (maxX - minX);
+    } else {
+      // Clamp to a range the player can physically reach in the time since the
+      // last obstacle spawned (using the un-boosted move speed as the safe floor),
+      // so back-to-back spawns never demand an impossible cross-road dash.
+      const reach = MOVE_SPEED * lastSpawnInterval * 1.15 + player.w;
+      let lo = Math.max(minX, lastSpawnX - reach);
+      let hi = Math.min(maxX, lastSpawnX + reach);
+      if (lo > hi) { lo = minX; hi = maxX; }
+      x = lo + Math.random() * (hi - lo);
+    }
+    lastSpawnX = x;
+    obstacles.push({ x, y: -h, w, h, color: CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)], scored: false, minGap: Infinity });
   }
 
   return {
@@ -125,6 +142,10 @@ function createRacingLevel(api) {
       distance = 0;
       speed = 220;
       spawnTimer = 0.8;
+      lastSpawnX = null;
+      lastSpawnInterval = 0.8;
+      nearMissStreak = 0;
+      popups = [];
       fuelTimer = 5 + Math.random() * 4;
       boostTimer = 0;
       dashOffset = 0;
@@ -134,9 +155,9 @@ function createRacingLevel(api) {
     update(dt) {
       boostTimer = Math.max(0, boostTimer - dt);
       const boosting = boostTimer > 0;
-      speed = (220 + Math.min(260, distance * 0.09)) * (boosting ? 1.5 : 1);
+      speed = (220 + Math.min(260, distance * 0.12)) * (boosting ? 1.5 : 1);
 
-      const moveSpeed = boosting ? 340 : 260;
+      const moveSpeed = boosting ? 340 : MOVE_SPEED;
       player.vx = 0;
       if (isDown('ArrowLeft', 'a')) player.vx = -moveSpeed;
       if (isDown('ArrowRight', 'd')) player.vx = moveSpeed;
@@ -153,7 +174,8 @@ function createRacingLevel(api) {
       spawnTimer -= dt;
       if (spawnTimer <= 0) {
         spawnObstacle();
-        spawnTimer = Math.max(0.45, 1.05 - distance / 6000);
+        spawnTimer = Math.max(0.45, 1.05 - distance / 2600);
+        lastSpawnInterval = spawnTimer;
       }
 
       fuelTimer -= dt;
@@ -174,6 +196,7 @@ function createRacingLevel(api) {
           sfx('pickup');
           shake(0.08, 2);
           burst(p.x + p.w / 2, p.y + p.h / 2, '#4fe3d0');
+          popups.push({ x: p.x + p.w / 2, y: p.y, text: '+10', life: 0.7 });
           return false;
         }
         return p.y < H + 60;
@@ -181,6 +204,41 @@ function createRacingLevel(api) {
 
       particles.forEach((pt) => { pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.life -= dt; });
       particles = particles.filter((pt) => pt.life > 0);
+      popups.forEach((p) => { p.y -= 26 * dt; p.life -= dt; });
+      popups = popups.filter((p) => p.life > 0);
+
+      // Near-miss / boosted-through-traffic feedback: reward tight dodges instead
+      // of just penalizing hits. Tracks the closest horizontal gap while an
+      // obstacle shares the player's vertical band, then scores it once the
+      // obstacle has fully passed without ever colliding.
+      obstacles.forEach((o) => {
+        if (o.scored) return;
+        const vOverlap = player.y < o.y + o.h && player.y + player.h > o.y;
+        if (vOverlap) {
+          const hOverlap = player.x < o.x + o.w && player.x + player.w > o.x;
+          if (hOverlap) {
+            if (boosting) {
+              o.scored = true;
+              addScore(3);
+              sfx('bounce');
+              shake(0.05, 1.5);
+              burst(player.x + player.w / 2, player.y + player.h / 2, '#8fffe0');
+              popups.push({ x: player.x + player.w / 2, y: player.y, text: '+3', life: 0.7 });
+            }
+          } else {
+            const gap = o.x + o.w <= player.x ? player.x - (o.x + o.w) : o.x - (player.x + player.w);
+            if (gap < o.minGap) o.minGap = gap;
+          }
+        } else if (o.y > player.y + player.h && o.minGap < NEAR_MISS_GAP) {
+          o.scored = true;
+          nearMissStreak++;
+          const bonus = 5 + Math.min(20, nearMissStreak * 2);
+          addScore(bonus);
+          sfx('swing');
+          shake(0.05, 1.5);
+          popups.push({ x: o.x + o.w / 2, y: player.y, text: `+${bonus}`, life: 0.7 });
+        }
+      });
 
       if (!boosting) {
         for (const o of obstacles) {
@@ -245,6 +303,16 @@ function createRacingLevel(api) {
         ctx.fillRect(pt.x - 2, pt.y - 2, 4, 4);
         ctx.globalAlpha = 1;
       });
+
+      ctx.font = 'bold 10px monospace';
+      ctx.textAlign = 'center';
+      popups.forEach((p) => {
+        ctx.fillStyle = '#fff6a8';
+        ctx.globalAlpha = Math.max(0, p.life / 0.7);
+        ctx.fillText(p.text, p.x, p.y);
+        ctx.globalAlpha = 1;
+      });
+      ctx.textAlign = 'left';
 
       if (boostTimer > 0) {
         ctx.strokeStyle = 'rgba(79, 227, 208, 0.6)';

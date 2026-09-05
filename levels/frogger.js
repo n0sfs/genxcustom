@@ -1,5 +1,5 @@
 function createFroggerLevel(api) {
-  const { W, H, isDown, addScore, loseLife, winLevel, sfx } = api;
+  const { W, H, isDown, addScore, loseLife, winLevel, sfx, shake } = api;
 
   const CELL = 40;
   const COLS = W / CELL;
@@ -46,8 +46,8 @@ function createFroggerLevel(api) {
     return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   }
 
-  const TIME_LIMIT = 22;
-  let frog, prevKeys, hopTimer, roads, rivers, goalsFilled, bestRow, timeLeft, fly, flyTimer, flyLife, waterTime;
+  const TIME_LIMIT = 25;
+  let frog, prevKeys, hopTimer, roads, rivers, goalsFilled, bestRow, timeLeft, fly, flyTimer, flyLife, waterTime, speedMul, nearMissTimer;
 
   function drawFrog(ctx, f) {
     const cx = f.x + f.w / 2, cy = f.y + f.h / 2;
@@ -144,6 +144,8 @@ function createFroggerLevel(api) {
       flyTimer = 3 + Math.random() * 4;
       flyLife = 0;
       waterTime = 0;
+      speedMul = 1;
+      nearMissTimer = 0;
     },
 
     update(dt) {
@@ -169,8 +171,8 @@ function createFroggerLevel(api) {
         }
       }
 
-      roads.forEach((lane) => lane.items.forEach((c) => { c.x = wrap(c.x + lane.dir * lane.speed * dt); }));
-      rivers.forEach((lane) => lane.items.forEach((l) => { l.x = wrap(l.x + lane.dir * lane.speed * dt); }));
+      roads.forEach((lane) => lane.items.forEach((c) => { c.x = wrap(c.x + lane.dir * lane.speed * speedMul * dt); }));
+      rivers.forEach((lane) => lane.items.forEach((l) => { l.x = wrap(l.x + lane.dir * lane.speed * speedMul * dt); }));
 
       const keyMap = { ArrowUp: 'up', w: 'up', ArrowDown: 'down', s: 'down', ArrowLeft: 'left', a: 'left', ArrowRight: 'right', d: 'right' };
       const justPressed = {};
@@ -187,31 +189,61 @@ function createFroggerLevel(api) {
         else if (justPressed.left) dcol = -1;
         else if (justPressed.right) dcol = 1;
         if (dcol || drow) {
-          frog.col = Math.max(0, Math.min(COLS - 1, frog.col + dcol));
-          frog.row = Math.max(GOAL_ROW, Math.min(START_ROW, frog.row + drow));
-          frog.x = frog.col * CELL + FROG_OFF;
-          frog.y = frog.row * CELL + FROG_OFF;
-          hopTimer = HOP_COOLDOWN;
-          sfx('hop');
-          if (frog.row < bestRow) {
-            bestRow = frog.row;
-            addScore(2);
+          const newCol = Math.max(0, Math.min(COLS - 1, frog.col + dcol));
+          const newRow = Math.max(GOAL_ROW, Math.min(START_ROW, frog.row + drow));
+          // Hopping onto an already-filled goal pad used to be an instant death,
+          // which felt cheap after a long, careful crossing. Just bounce back instead;
+          // only landing between pads (the water gap) still kills you.
+          let blockedByFilledPad = false;
+          if (newRow === GOAL_ROW) {
+            const targetCenterX = newCol * CELL + CELL / 2;
+            const slotIdx = GOAL_COLS.findIndex((gc) => Math.abs(targetCenterX - (gc * CELL + CELL / 2)) < CELL * 0.4);
+            if (slotIdx !== -1 && goalsFilled[slotIdx]) blockedByFilledPad = true;
           }
-          if (fly && fly.col === frog.col && fly.row === frog.row) {
-            fly = null;
-            flyTimer = 5 + Math.random() * 5;
-            addScore(15);
-            sfx('pickup');
+          if (blockedByFilledPad) {
+            hopTimer = HOP_COOLDOWN;
+            sfx('bounce');
+          } else {
+            frog.col = newCol;
+            frog.row = newRow;
+            frog.x = frog.col * CELL + FROG_OFF;
+            frog.y = frog.row * CELL + FROG_OFF;
+            hopTimer = HOP_COOLDOWN;
+            sfx('hop');
+            if (frog.row < bestRow) {
+              bestRow = frog.row;
+              addScore(2);
+            }
+            if (fly && fly.col === frog.col && fly.row === frog.row) {
+              fly = null;
+              flyTimer = 5 + Math.random() * 5;
+              addScore(15);
+              sfx('pickup');
+            }
           }
         }
       }
 
+      nearMissTimer = Math.max(0, nearMissTimer - dt);
       const roadLane = roads.find((l) => l.row === frog.row);
       if (roadLane) {
         for (const c of roadLane.items) {
           if (rectsOverlap(frog, c)) {
             loseLife();
             return;
+          }
+        }
+        // Juice: a little screen-shake + sfx when a car whizzes past within a
+        // hair of the frog but doesn't connect, to sell the near-miss.
+        if (nearMissTimer <= 0) {
+          for (const c of roadLane.items) {
+            const gap = c.x >= frog.x ? c.x - (frog.x + frog.w) : frog.x - (c.x + c.w);
+            if (gap >= 0 && gap < 6) {
+              shake(0.06, 2);
+              sfx('bounce');
+              nearMissTimer = 0.5;
+              break;
+            }
           }
         }
       }
@@ -223,7 +255,7 @@ function createFroggerLevel(api) {
           loseLife();
           return;
         }
-        frog.x += riverLane.dir * riverLane.speed * dt;
+        frog.x += riverLane.dir * riverLane.speed * speedMul * dt;
         if (frog.x < -frog.w || frog.x > W) {
           loseLife();
           return;
@@ -238,12 +270,18 @@ function createFroggerLevel(api) {
           return;
         }
         goalsFilled[slotIdx] = true;
-        addScore(20);
+        // Base pad score plus a classic Frogger-style quick-crossing time bonus
+        // so racing across is rewarded, not just surviving.
+        const timeBonus = Math.round(Math.max(0, timeLeft));
+        addScore(20 + timeBonus);
         sfx('pickup');
         frog.col = START_COL; frog.row = START_ROW;
         frog.x = frog.col * CELL + FROG_OFF; frog.y = frog.row * CELL + FROG_OFF;
         bestRow = START_ROW;
         timeLeft = TIME_LIMIT;
+        // Escalating difficulty: traffic and river currents pick up pace with
+        // each pad filled, capped so the final pad stays fair, not brutal.
+        speedMul = Math.min(1.5, speedMul + 0.08);
         if (goalsFilled.every(Boolean)) {
           winLevel(50);
         }

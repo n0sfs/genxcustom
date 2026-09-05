@@ -41,7 +41,7 @@ function createZeldaLevel(api) {
   const BOSS_HP = 4;
   const BOSS_SPAWN = { x: ROOM_W + ROOM_W / 2 - 24, y: ROOM_H + ROOM_H / 2 - 90 };
 
-  let player, enemies, projectiles, camX, camY, goal, goalActive, particles, hearts, boss, bossSpawned, torchTime;
+  let player, enemies, projectiles, camX, camY, goal, goalActive, particles, hearts, boss, bossSpawned, torchTime, killStreak, tookDamage;
 
   // Fixed decorative wall torches for dungeon atmosphere (purely cosmetic).
   const torches = [
@@ -55,6 +55,7 @@ function createZeldaLevel(api) {
       x: BOSS_SPAWN.x, y: BOSS_SPAWN.y, w: 48, h: 48,
       hp: BOSS_HP, alive: true, invuln: 0, hitFlash: 0,
       state: 'idle', stateTimer: 1.2, nextAction: 'charge', dir: { dx: 0, dy: 1 },
+      telegraph: 0,
     };
   }
 
@@ -62,6 +63,16 @@ function createZeldaLevel(api) {
     boss.invuln = Math.max(0, boss.invuln - dt);
     boss.hitFlash = Math.max(0, boss.hitFlash - dt);
     boss.stateTimer -= dt;
+    // Enrage phase once the boss is at half health: attacks come a bit
+    // faster and the shot pattern widens, giving the fight an escalating
+    // second phase instead of one flat difficulty the whole time.
+    const enraged = boss.hp <= Math.ceil(BOSS_HP / 2);
+
+    // Telegraph the charge just before it fires so a fast lunge (which
+    // outruns the player) is dodgeable on reaction rather than a cheap hit.
+    boss.telegraph = boss.state === 'idle' && boss.nextAction === 'charge' && boss.stateTimer < 0.5
+      ? 1 - boss.stateTimer / 0.5
+      : 0;
 
     if (boss.state === 'idle') {
       if (boss.stateTimer <= 0) {
@@ -75,7 +86,8 @@ function createZeldaLevel(api) {
         } else {
           const dx = player.x - boss.x, dy = player.y - boss.y;
           const baseAng = Math.atan2(dy, dx);
-          [-0.35, 0, 0.35].forEach((a) => {
+          const spread = enraged ? [-0.5, -0.25, 0, 0.25, 0.5] : [-0.35, 0, 0.35];
+          spread.forEach((a) => {
             projectiles.push({
               x: boss.x + boss.w / 2, y: boss.y + boss.h / 2,
               vx: Math.cos(baseAng + a) * 170, vy: Math.sin(baseAng + a) * 170, w: 7, h: 7,
@@ -83,15 +95,16 @@ function createZeldaLevel(api) {
           });
           sfx('shoot');
           boss.state = 'idle';
-          boss.stateTimer = 1.3;
+          boss.stateTimer = enraged ? 0.9 : 1.3;
           boss.nextAction = 'charge';
         }
       }
     } else if (boss.state === 'charge') {
-      moveAndCollide(boss, boss.dir.dx * 250, boss.dir.dy * 250, dt);
+      const chargeSpeed = enraged ? 290 : 250;
+      moveAndCollide(boss, boss.dir.dx * chargeSpeed, boss.dir.dy * chargeSpeed, dt);
       if (boss.stateTimer <= 0) {
         boss.state = 'idle';
-        boss.stateTimer = 0.9;
+        boss.stateTimer = enraged ? 0.6 : 0.9;
         boss.nextAction = 'shoot';
       }
     }
@@ -144,6 +157,8 @@ function createZeldaLevel(api) {
       bossSpawned = false;
       camX = 0; camY = 0;
       torchTime = 0;
+      killStreak = 0;
+      tookDamage = false;
     },
 
     update(dt) {
@@ -215,11 +230,15 @@ function createZeldaLevel(api) {
           }
         }
 
-        const swordHit = swordRect && !player.hitSet.has(idx) && rectsOverlap(swordRect, e);
+        // Keyed on the enemy object itself, not its index in the alive-enemies
+        // list: that list shrinks mid-swing as enemies die, which used to
+        // shift indices and could make an untouched enemy wrongly read as
+        // "already hit", causing legitimate sword swings to whiff.
+        const swordHit = swordRect && !player.hitSet.has(e) && rectsOverlap(swordRect, e);
         const powerHit = player.powerTimer > 0 && rectsOverlap(player, e);
         if (swordHit || powerHit) {
           e.alive = false;
-          if (swordHit) player.hitSet.add(idx);
+          if (swordHit) player.hitSet.add(e);
           addScore(15);
           sfx('explosion');
           shake(0.1, 3);
@@ -228,6 +247,13 @@ function createZeldaLevel(api) {
           }
           if (Math.random() < HEART_DROP_CHANCE) {
             hearts.push({ x: e.x + e.w / 2 - 8, y: e.y + e.h / 2 - 8, w: 16, h: 16 });
+          }
+          // No-damage kill streak: every third consecutive kill without being
+          // hit earns a bonus, rewarding clean, careful play.
+          killStreak++;
+          if (killStreak % 3 === 0) {
+            addScore(20);
+            sfx('pickup');
           }
         }
       });
@@ -259,6 +285,11 @@ function createZeldaLevel(api) {
           addScore(30);
           sfx('hit');
           shake(0.1, 3);
+          killStreak++;
+          if (killStreak % 3 === 0) {
+            addScore(20);
+            sfx('pickup');
+          }
           for (let i = 0; i < 8; i++) {
             particles.push({ x: boss.x + boss.w / 2, y: boss.y + boss.h / 2, vx: (Math.random() - 0.5) * 180, vy: (Math.random() - 0.5) * 180, life: 0.4 });
           }
@@ -294,13 +325,18 @@ function createZeldaLevel(api) {
         if (touchedEnemy || touchedBoss || touchedProjectile) {
           player.invuln = 1.3;
           player.hitFlash = 0.4;
+          tookDamage = true;
+          killStreak = 0;
+          sfx('hurt');
           loseLife();
           return;
         }
       }
 
       if (goalActive && rectsOverlap(player, goal)) {
-        winLevel(70);
+        // A flawless run (never touched by an enemy, projectile, or the boss)
+        // earns a much bigger clear bonus, on top of the escalating kill streak.
+        winLevel(tookDamage ? 70 : 170);
         return;
       }
 
@@ -479,6 +515,29 @@ function createZeldaLevel(api) {
         const bcx = boss.x + boss.w / 2, bcy = boss.y + boss.h / 2;
         const flashing = boss.hitFlash > 0 && Math.floor(boss.hitFlash * 20) % 2 === 0;
         FX.shadow(ctx, bcx, bcy + boss.h / 2 + 3, boss.w / 2, 5, 0.4);
+
+        // Charge wind-up telegraph: a growing red warning ring plus a
+        // directional wedge toward the player, so the charge (which is
+        // faster than the player) reads as a dodgeable threat, not a
+        // cheap surprise hit.
+        if (boss.telegraph > 0) {
+          const t = boss.telegraph;
+          ctx.strokeStyle = `rgba(255,60,60,${0.25 + t * 0.5})`;
+          ctx.lineWidth = 2 + t * 2;
+          ctx.beginPath();
+          ctx.arc(bcx, bcy, boss.w / 2 + 6 + t * 8, 0, Math.PI * 2);
+          ctx.stroke();
+          const pdx = player.x + player.w / 2 - bcx, pdy = player.y + player.h / 2 - bcy;
+          const ang = Math.atan2(pdy, pdx);
+          const tipDist = boss.w / 2 + 14 + t * 10;
+          ctx.fillStyle = `rgba(255,80,60,${0.35 + t * 0.4})`;
+          ctx.beginPath();
+          ctx.moveTo(bcx + Math.cos(ang) * tipDist, bcy + Math.sin(ang) * tipDist);
+          ctx.lineTo(bcx + Math.cos(ang + 2.6) * (boss.w / 2 + 4), bcy + Math.sin(ang + 2.6) * (boss.w / 2 + 4));
+          ctx.lineTo(bcx + Math.cos(ang - 2.6) * (boss.w / 2 + 4), bcy + Math.sin(ang - 2.6) * (boss.w / 2 + 4));
+          ctx.closePath();
+          ctx.fill();
+        }
         if (flashing) {
           ctx.fillStyle = '#fff';
           ctx.beginPath();

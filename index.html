@@ -10,7 +10,7 @@
   <div id="wrap">
     <div id="hud">
       <span id="hud-title">GENX ARCADE</span>
-      <span id="hud-level">LEVEL 1/12</span>
+      <span id="hud-level">LEVEL 1/15</span>
       <span id="hud-score">SCORE 0</span>
       <span id="hud-lives">LIVES ▲▲▲</span>
       <span id="hud-sound">SOUND ON</span>
@@ -22,7 +22,7 @@
       <div id="screen-title" class="screen">
         <p class="eyebrow">NOW LOADING</p>
         <h1>GENX ARCADE</h1>
-        <p class="sub">twelve classics. one quarter.</p>
+        <p class="sub">fifteen classics. one quarter.</p>
         <div class="levelist" id="level-list"></div>
         <p class="prompt blink">CLICK A GAME TO PLAY</p>
         <button class="menu-btn" data-key="Enter">START</button>
@@ -102,6 +102,9 @@
   <script src="levels/frogger.js"></script>
   <script src="levels/commando.js"></script>
   <script src="levels/tetris.js"></script>
+  <script src="levels/bugblitz.js"></script>
+  <script src="levels/skydefense.js"></script>
+  <script src="levels/patternpulse.js"></script>
   <script>
     Game.registerLevel('STARBLASTER', createShooterLevel, 'shooter', 'Blast the alien invasion.');
     Game.registerLevel('CRATE RUNNER', createPlatformerLevel, 'platformer', 'Run, jump, stomp to the flag.');
@@ -115,6 +118,9 @@
     Game.registerLevel('HOP HAZARD', createFroggerLevel, 'frogger', 'Cross the road and the river.');
     Game.registerLevel('OPERATION VIPER', createCommandoLevel, 'run-n-gun', 'Fight through enemy lines.');
     Game.registerLevel('BLOCK CASCADE', createTetrisLevel, 'puzzle', 'Clear lines before they stack up.');
+    Game.registerLevel('BUG BLITZ', createBugBlitzLevel, 'garden', 'Blast the centipede before it reaches you.');
+    Game.registerLevel('SKY DEFENSE', createSkyDefenseLevel, 'defense', 'Aim and intercept before the cities fall.');
+    Game.registerLevel('PATTERN PULSE', createPatternPulseLevel, 'memory', 'Watch the pattern, then repeat it.');
     Game.boot();
   </script>
 </body>

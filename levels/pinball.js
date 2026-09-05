@@ -17,6 +17,13 @@ function createPinballLevel(api) {
     { x: 14, y: 0, w: 10, h: 470 },
     { x: 616, y: 0, w: 10, h: 470 },
     { x: 14, y: 0, w: 612, h: 10 },
+    // inlane guides: without these, the gap between the outer rails and the
+    // flippers' resting reach is so wide that a ball can roll straight down
+    // either side and drain untouched. These funnel it back toward the
+    // flippers, like the plastic guides on a real table, while still leaving
+    // a narrower "outlane" for risk.
+    { x: 170, y: 280, w: 8, h: 150 },
+    { x: 462, y: 280, w: 8, h: 150 },
   ];
 
   const bumpers = [
@@ -48,6 +55,8 @@ function createPinballLevel(api) {
   ];
 
   let balls, score, comboCount, comboTimer, popups, targets;
+  let wallCooldown = 0;
+  let plungerCharge = 0;
 
   function targetBounce(b) {
     for (const t of targets) {
@@ -76,7 +85,7 @@ function createPinballLevel(api) {
   }
 
   function triggerMultiball(source) {
-    sfx('levelclear');
+    sfx('explosion');
     shake(0.15, 4);
     popups.push({ x: 320, y: 210, text: 'MULTIBALL!', life: 1.3 });
     for (let i = 0; i < 2; i++) {
@@ -86,7 +95,8 @@ function createPinballLevel(api) {
     targets.forEach((t) => { t.alive = true; });
   }
 
-  function circleRectBounce(b) {
+  function circleRectBounce(b, dt) {
+    wallCooldown = Math.max(0, wallCooldown - dt);
     for (const w of walls) {
       const cx = clamp(b.x, w.x, w.x + w.w);
       const cy = clamp(b.y, w.y, w.y + w.h);
@@ -98,9 +108,17 @@ function createPinballLevel(api) {
         b.x += nx * (BALL_R - dist);
         b.y += ny * (BALL_R - dist);
         const vDotN = b.vx * nx + b.vy * ny;
+        const impactSpeed = Math.abs(vDotN);
         b.vx -= 2 * vDotN * nx;
         b.vy -= 2 * vDotN * ny;
         b.vx *= 0.97; b.vy *= 0.97;
+        // only a real, fast impact gets a sound/rumble - a ball resting or
+        // rolling along a rail would otherwise spam the same sfx every frame
+        if (impactSpeed > 160 && wallCooldown <= 0) {
+          wallCooldown = 0.1;
+          sfx('bounce');
+          if (impactSpeed > 500) shake(0.05, 1.5);
+        }
       }
     }
   }
@@ -126,7 +144,9 @@ function createPinballLevel(api) {
           bp.cooldown = 0.15;
           comboCount = comboTimer > 0 ? comboCount + 1 : 1;
           comboTimer = COMBO_WINDOW;
-          const bonus = 10 + (comboCount - 1) * 5;
+          // bonus escalates with the streak but is capped so one lucky bumper
+          // rally can't blow past TARGET_SCORE and trivialize the table
+          const bonus = 10 + Math.min(comboCount - 1, 6) * 5;
           score += bonus;
           addScore(bonus);
           sfx('bumper');
@@ -294,6 +314,7 @@ function createPinballLevel(api) {
         b.vx += flip.dir.y * -kick * 0.4 + nx * kick * 0.6;
         b.vy += flip.dir.x * kick * 0.4 + ny * kick * 0.6;
         sfx('swing');
+        shake(0.06, 2);
       } else {
         sfx('bounce');
       }
@@ -311,6 +332,8 @@ function createPinballLevel(api) {
       comboCount = 0;
       comboTimer = 0;
       popups = [];
+      wallCooldown = 0;
+      plungerCharge = 0;
     },
 
     update(dt) {
@@ -323,11 +346,18 @@ function createPinballLevel(api) {
 
       balls.forEach((ball) => {
         if (!ball.launched) {
+          // hold Space to pull back the plunger, release to fire - a quick
+          // tap still gives the old baseline launch, holding it gives a
+          // stronger, slightly more forward shot
           if (isDown('Space')) {
+            plungerCharge = Math.min(1, plungerCharge + dt / 0.6);
+          } else if (plungerCharge > 0) {
+            const power = 560 + plungerCharge * 160;
             ball.launched = true;
-            ball.vx = -90;
-            ball.vy = -560;
+            ball.vx = -90 - plungerCharge * 30;
+            ball.vy = -power;
             sfx('launch');
+            plungerCharge = 0;
           }
           return;
         }
@@ -341,11 +371,29 @@ function createPinballLevel(api) {
         ball.x += ball.vx * dt;
         ball.y += ball.vy * dt;
 
-        circleRectBounce(ball);
+        circleRectBounce(ball, dt);
         bumperBounce(ball, dt);
         targetBounce(ball);
         flipperBounce(ball, flippers.left);
         flipperBounce(ball, flippers.right);
+
+        // anti-stuck safety net: a ball wedged in a corner where two
+        // surfaces keep reflecting it back and forth can end up with almost
+        // no net movement despite constant gravity/velocity churn. If that
+        // happens for too long, give it a small nudge free rather than
+        // leaving the player stuck watching a jittering ball forever.
+        ball._stuckT = (ball._stuckT || 0) + dt;
+        if (ball._stuckSX === undefined) { ball._stuckSX = ball.x; ball._stuckSY = ball.y; }
+        if (ball._stuckT > 0.6) {
+          const moved = Math.hypot(ball.x - ball._stuckSX, ball.y - ball._stuckSY);
+          if (moved < 6) {
+            ball.vx += (Math.random() - 0.5) * 300;
+            ball.vy -= 260;
+          }
+          ball._stuckSX = ball.x;
+          ball._stuckSY = ball.y;
+          ball._stuckT = 0;
+        }
       });
 
       balls = balls.filter((ball) => !ball.launched || ball.y - BALL_R < H);
@@ -413,7 +461,16 @@ function createPinballLevel(api) {
       if (balls.some((b) => !b.launched)) {
         ctx.fillStyle = '#7d86a3';
         ctx.font = '10px monospace';
-        ctx.fillText('SPACE TO LAUNCH', 470, 400);
+        ctx.fillText(plungerCharge > 0 ? 'HOLD, THEN RELEASE!' : 'HOLD SPACE TO LAUNCH', 470, 400);
+        // plunger charge meter
+        const mx = 470, my = 410, mw = 90, mh = 6;
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(mx + 0.5, my + 0.5, mw - 1, mh - 1);
+        if (plungerCharge > 0) {
+          ctx.fillStyle = '#ffd24f';
+          ctx.fillRect(mx + 1, my + 1, (mw - 2) * plungerCharge, mh - 2);
+        }
       }
 
       balls.forEach((ball) => {

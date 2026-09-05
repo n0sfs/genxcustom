@@ -14,8 +14,11 @@ function createBreakoutLevel(api) {
     { key: 'M', label: 'MULTI', color: '#ffd24f' },
     { key: 'S', label: 'SLOW', color: '#4fe3d0' },
   ];
+  const COMBO_WINDOW = 0.9;
+  const totalBricks = ROWS * COLS;
 
   let paddle, balls, bricks, particles, powerups, wideTimer, slowTimer;
+  let comboCount, comboTimer, popups;
 
   function burst(x, y, color) {
     for (let i = 0; i < 8; i++) {
@@ -141,20 +144,29 @@ function createBreakoutLevel(api) {
       resetBalls();
       particles = [];
       powerups = [];
+      popups = [];
       wideTimer = 0;
       slowTimer = 0;
+      comboCount = 0;
+      comboTimer = 0;
     },
 
     update(dt) {
       wideTimer = Math.max(0, wideTimer - dt);
       slowTimer = Math.max(0, slowTimer - dt);
+      comboTimer = Math.max(0, comboTimer - dt);
+      if (comboTimer <= 0) comboCount = 0;
       paddle.w = currentPaddleWidth();
 
       if (isDown('ArrowLeft', 'a')) paddle.x -= paddle.speed * dt;
       if (isDown('ArrowRight', 'd')) paddle.x += paddle.speed * dt;
       paddle.x = Math.max(0, Math.min(W - paddle.w, paddle.x));
 
-      const speedMult = slowTimer > 0 ? 0.65 : 1;
+      // ball speed creeps up as the wall clears out, for an escalating arcade pace
+      const aliveBricks = bricks.reduce((n, b) => n + (b.alive ? 1 : 0), 0);
+      const destroyedFrac = 1 - aliveBricks / totalBricks;
+      const progressMult = 1 + destroyedFrac * 0.35;
+      const speedMult = (slowTimer > 0 ? 0.65 : 1) * progressMult;
 
       balls.forEach((ball) => {
         if (ball.attached) {
@@ -188,9 +200,27 @@ function createBreakoutLevel(api) {
           if (!b.alive) continue;
           if (circleRectOverlap(ball, BALL_R, b)) {
             b.alive = false;
-            addScore(8);
+
+            comboCount = comboTimer > 0 ? comboCount + 1 : 1;
+            comboTimer = COMBO_WINDOW;
+            const bonus = 8 + Math.min(comboCount - 1, 8) * 3;
+            addScore(bonus);
             burst(b.x + b.w / 2, b.y + b.h / 2, b.color);
             sfx('hit');
+            shake(0.04, 1.3);
+            if (comboCount > 2) {
+              popups.push({ x: b.x + b.w / 2, y: b.y, text: `x${comboCount} +${bonus}`, life: 0.5 });
+            }
+
+            const rowMates = bricks.filter((o) => o.y === b.y);
+            if (rowMates.every((o) => !o.alive)) {
+              addScore(25);
+              sfx('explosion');
+              shake(0.18, 5);
+              popups.push({ x: b.x + b.w / 2, y: b.y - 10, text: 'ROW CLEAR +25', life: 0.9 });
+              burst(b.x + b.w / 2, b.y + b.h / 2, b.color);
+            }
+
             if (Math.random() < POWERUP_CHANCE) {
               const type = POWERUP_TYPES[Math.floor(Math.random() * POWERUP_TYPES.length)];
               powerups.push({ x: b.x + b.w / 2, y: b.y + b.h / 2, vy: 110, ...type });
@@ -206,11 +236,20 @@ function createBreakoutLevel(api) {
           }
         }
       });
+      const ballsBefore = balls.length;
       balls = balls.filter((ball) => ball.attached || ball.y - BALL_R < H);
 
       if (balls.length === 0) {
+        comboCount = 0;
+        comboTimer = 0;
         loseLife();
         return;
+      }
+
+      // dropping a ball breaks the streak even if other balls (multiball) are still alive
+      if (balls.length < ballsBefore) {
+        comboCount = 0;
+        comboTimer = 0;
       }
 
       powerups.forEach((p) => { p.y += p.vy * dt; });
@@ -242,6 +281,9 @@ function createBreakoutLevel(api) {
 
       particles.forEach((p) => { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; });
       particles = particles.filter((p) => p.life > 0);
+
+      popups.forEach((p) => { p.y -= 22 * dt; p.life -= dt; });
+      popups = popups.filter((p) => p.life > 0);
 
       if (bricks.every((b) => !b.alive)) {
         winLevel(40);
@@ -297,6 +339,22 @@ function createBreakoutLevel(api) {
         ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
         ctx.globalAlpha = 1;
       });
+
+      ctx.font = 'bold 9px monospace';
+      ctx.textAlign = 'center';
+      popups.forEach((p) => {
+        ctx.fillStyle = '#ffe28a';
+        ctx.globalAlpha = Math.max(0, p.life / 0.5);
+        ctx.fillText(p.text, p.x, p.y);
+        ctx.globalAlpha = 1;
+      });
+      ctx.textAlign = 'left';
+
+      if (comboTimer > 0 && comboCount > 2) {
+        ctx.fillStyle = '#ffd24f';
+        ctx.font = 'bold 10px monospace';
+        ctx.fillText(`COMBO x${comboCount}`, 12, 20);
+      }
 
       if (balls.some((b) => b.attached)) {
         ctx.fillStyle = '#9aa3c0';

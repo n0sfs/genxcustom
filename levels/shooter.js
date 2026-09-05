@@ -7,7 +7,7 @@ function createShooterLevel(api) {
   const startX = (W - gridW) / 2;
 
   let player, bullets, enemyBullets, enemies, enemyDir, enemyStepTimer;
-  let shotCooldown, hitFlash, invuln, particles, ufo, ufoTimer, popups, bunkers, stars;
+  let shotCooldown, hitFlash, invuln, particles, ufo, ufoTimer, popups, bunkers, stars, combo;
   const UFO_SCORES = [50, 50, 100, 100, 150, 300];
 
   const BUNKER_PATTERN = ['.XXXXX.', 'XXXXXXX', 'XXXXXXX', 'XXXXXXX', 'XX...XX'];
@@ -134,6 +134,7 @@ function createShooterLevel(api) {
       ufo = null;
       ufoTimer = 6 + Math.random() * 5;
       popups = [];
+      combo = 0;
       spawnBunkers();
       spawnStars();
     },
@@ -159,8 +160,11 @@ function createShooterLevel(api) {
       bullets = bullets.filter((b) => !b.hit);
 
       const aliveEnemies = enemies.filter((e) => e.alive);
-      const speedFactor = 1 + (1 - aliveEnemies.length / (ROWS * COLS)) * 2.2;
-      enemyStepTimer += dt * speedFactor;
+      // Aggression ramps as the ranks thin — both movement speed and firing
+      // rate scale off the same curve, so the last few invaders stay tense
+      // instead of the fight fizzling out once most of the wave is dead.
+      const pressureFactor = 1 + (1 - aliveEnemies.length / (ROWS * COLS)) * 2.2;
+      enemyStepTimer += dt * pressureFactor;
       const stepInterval = 0.5;
       let edgeHit = false;
       if (enemyStepTimer >= stepInterval) {
@@ -177,7 +181,7 @@ function createShooterLevel(api) {
         aliveEnemies.forEach((e) => hitBunkers(e));
       }
 
-      if (Math.random() < 0.55 * dt * (1 + aliveEnemies.length * 0.02) && aliveEnemies.length) {
+      if (aliveEnemies.length && Math.random() < 0.5 * dt * pressureFactor) {
         const shooter = aliveEnemies[Math.floor(Math.random() * aliveEnemies.length)];
         enemyBullets.push({ x: shooter.x + shooter.w / 2 - 2, y: shooter.y + shooter.h, w: 4, h: 10 });
       }
@@ -192,10 +196,14 @@ function createShooterLevel(api) {
           if (rectsOverlap(b, e)) {
             e.alive = false;
             b.hit = true;
-            addScore(10);
+            combo++;
+            const bonus = 10 + Math.min(30, (combo - 1) * 4);
+            addScore(bonus);
             burst(e.x + e.w / 2, e.y + e.h / 2, e.color);
-            sfx('explosion');
+            // milestone kills in a streak get a bigger, punchier boom
+            sfx(combo > 1 && combo % 5 === 0 ? 'explosion' : 'hit');
             shake(0.08, 2);
+            popups.push({ x: e.x + e.w / 2, y: e.y, text: combo > 1 ? `+${bonus} x${combo}` : `+${bonus}`, life: 0.6 });
             break;
           }
         }
@@ -218,6 +226,7 @@ function createShooterLevel(api) {
           if (b.hit || !ufo) return;
           if (rectsOverlap(b, ufo)) {
             b.hit = true;
+            combo++;
             const bonus = UFO_SCORES[Math.floor(Math.random() * UFO_SCORES.length)];
             addScore(bonus);
             burst(ufo.x + ufo.w / 2, ufo.y + ufo.h / 2, '#ff4fa3');
@@ -242,6 +251,7 @@ function createShooterLevel(api) {
             b.hit = true;
             hitFlash = 0.5;
             invuln = 1.2;
+            sfx('hurt');
             loseLife();
             return;
           }
@@ -250,6 +260,7 @@ function createShooterLevel(api) {
       enemyBullets = enemyBullets.filter((b) => !b.hit);
 
       if (aliveEnemies.some((e) => e.y + e.h >= player.y)) {
+        sfx('hurt');
         loseLife();
         return;
       }
