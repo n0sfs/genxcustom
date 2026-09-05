@@ -87,6 +87,36 @@ const Game = (() => {
     if (fn) fn();
   }
 
+  // --- tiny procedural background loop, just a low bassline arpeggio ---
+  const MUSIC_STEP_MS = 150;
+  const MUSIC_PATTERN = [110, 0, 146.83, 0, 130.81, 0, 146.83, 164.81];
+  let musicTimer = null;
+  let musicStep = 0;
+
+  function musicTick() {
+    const freq = MUSIC_PATTERN[musicStep % MUSIC_PATTERN.length];
+    if (freq) tone(freq, 0.09, 'square', 0.035);
+    musicStep++;
+  }
+
+  function resumeMusic() {
+    stopMusic();
+    musicTimer = setInterval(musicTick, MUSIC_STEP_MS);
+  }
+
+  function startMusic() {
+    musicStep = 0;
+    resumeMusic();
+  }
+
+  function stopMusic() {
+    if (musicTimer) { clearInterval(musicTimer); musicTimer = null; }
+  }
+
+  function vibrate(pattern) {
+    if (navigator.vibrate) navigator.vibrate(pattern);
+  }
+
   function updateSoundHud() {
     if (hudSound) hudSound.textContent = muted ? 'SOUND OFF' : 'SOUND ON';
   }
@@ -357,6 +387,7 @@ const Game = (() => {
     loadLevel(startIndex);
     state.mode = 'playing';
     hideAllScreens();
+    startMusic();
   }
 
   function loadLevel(index) {
@@ -373,6 +404,8 @@ const Game = (() => {
     state.levelIndex++;
     if (state.levelIndex >= state.levelDefs.length) {
       sfx('win');
+      stopMusic();
+      vibrate([40, 60, 40, 60, 80]);
       if (qualifiesForLeaderboard(state.score)) {
         startInitialsEntry('win', state.score);
       } else {
@@ -385,15 +418,18 @@ const Game = (() => {
     loadLevel(state.levelIndex);
     state.mode = 'playing';
     hideAllScreens();
+    startMusic();
   }
 
   function togglePause() {
     if (state.mode === 'playing') {
       state.mode = 'pause';
       showScreen('pause');
+      stopMusic();
     } else if (state.mode === 'pause') {
       state.mode = 'playing';
       hideAllScreens();
+      resumeMusic();
     }
   }
 
@@ -401,6 +437,7 @@ const Game = (() => {
     state.levelInstance = null;
     state.mode = 'title';
     showScreen('title');
+    stopMusic();
   }
 
   function addScore(n) {
@@ -414,6 +451,8 @@ const Game = (() => {
     shake(0.3, 6);
     if (state.lives <= 0) {
       sfx('lose');
+      stopMusic();
+      vibrate([60, 40, 120]);
       if (qualifiesForLeaderboard(state.score)) {
         startInitialsEntry('gameover', state.score);
       } else {
@@ -431,6 +470,7 @@ const Game = (() => {
   function shake(duration, magnitude) {
     shakeTime = Math.max(shakeTime, duration);
     shakeMag = Math.max(shakeMag, magnitude);
+    vibrate(Math.min(Math.round(magnitude * 8), 60));
   }
 
   function winLevel(bonus = 0) {
@@ -439,6 +479,7 @@ const Game = (() => {
     lcTitle.textContent = `${state.levelDefs[state.levelIndex].name} CLEAR`;
     lcScore.textContent = `SCORE ${state.score}${bonus ? `  (+${bonus} bonus)` : ''}`;
     sfx('levelclear');
+    stopMusic();
     showScreen('levelcomplete');
   }
 
@@ -519,6 +560,13 @@ const Game = (() => {
     renderMarquee();
     renderLevelList();
     document.querySelectorAll('[data-key]').forEach(bindVirtualKey);
+    if (hudSound) {
+      hudSound.style.cursor = 'pointer';
+      hudSound.addEventListener('click', () => {
+        toggleMute();
+        sfx('select');
+      });
+    }
     showScreen('title');
     requestAnimationFrame(loop);
   }

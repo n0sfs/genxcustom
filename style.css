@@ -260,6 +260,7 @@ body {
 @media (max-width: 460px) {
   .levelist { grid-template-columns: repeat(2, 1fr); }
   .lvl-tagline { display: none; }
+  #marquee-track { font-size: 9px; letter-spacing: 1px; animation-duration: 16s; }
 }
 
 .prompt { font-family: var(--display); font-size: 11px; color: var(--green); }
