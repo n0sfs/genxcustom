@@ -4,9 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GENX ARCADE</title>
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
+  <div id="crt-boot" aria-hidden="true"></div>
   <div id="wrap">
     <div id="hud">
       <span id="hud-title">GENX ARCADE</span>
@@ -15,6 +16,8 @@
       <span id="hud-lives">LIVES ▲▲▲</span>
       <span id="hud-sound">SOUND ON</span>
     </div>
+
+    <div id="marquee"><div id="marquee-track"></div></div>
 
     <div id="stage">
       <canvas id="game" width="640" height="480"></canvas>
@@ -26,7 +29,7 @@
         <div class="levelist" id="level-list"></div>
         <p class="prompt blink">CLICK A GAME TO PLAY</p>
         <button class="menu-btn" data-key="Enter">START</button>
-        <p id="title-highscore" class="sub"></p>
+        <div id="title-leaderboard" class="leaderboard"></div>
         <p class="controls">CLICK/TAP A GAME &middot; OR ARROWS + ENTER &middot; M MUTE</p>
       </div>
 
@@ -57,6 +60,18 @@
         <p class="controls">PRESS ESC TO QUIT TO MENU</p>
         <button class="menu-btn" data-key="p">RESUME</button>
         <button class="menu-btn secondary" data-key="Escape">QUIT TO MENU</button>
+      </div>
+
+      <div id="screen-initials" class="screen hidden">
+        <p class="eyebrow">NEW HIGH SCORE</p>
+        <h2>ENTER YOUR INITIALS</h2>
+        <div class="initials-row">
+          <span class="letter-slot active">A</span>
+          <span class="letter-slot">A</span>
+          <span class="letter-slot">A</span>
+        </div>
+        <p class="controls">UP/DOWN CHANGE LETTER &middot; LEFT/RIGHT MOVE &middot; ENTER CONFIRM</p>
+        <button class="menu-btn" data-key="Enter">CONFIRM</button>
       </div>
 
     </div>

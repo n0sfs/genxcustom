@@ -55,7 +55,77 @@ body {
 #hud-lives { color: var(--red); }
 #hud-sound { color: #7d86a3; font-size: 0.7em; cursor: default; }
 
-#title-highscore { color: var(--yellow); font-size: 15px; }
+.leaderboard {
+  width: 100%;
+  max-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 8px 14px;
+  font-size: 14px;
+}
+.lb-row { display: flex; justify-content: space-between; color: var(--yellow); letter-spacing: 1px; }
+.lb-row:first-child { color: var(--green); text-shadow: 0 0 6px rgba(107,255,107,0.5); }
+.lb-empty { color: #7d86a3; font-size: 13px; text-align: center; }
+
+#marquee {
+  width: 100%;
+  overflow: hidden;
+  background: #05060a;
+  border: 2px solid var(--line);
+  border-radius: 4px;
+  padding: 4px 0;
+  white-space: nowrap;
+}
+#marquee-track {
+  display: inline-block;
+  font-family: var(--display);
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: #ff8a1f;
+  text-shadow: 0 0 6px #ff8a1f, 0 0 12px rgba(255, 138, 31, 0.5);
+  animation: marquee-scroll 22s linear infinite;
+}
+@keyframes marquee-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+.initials-row { display: flex; gap: 10px; }
+.letter-slot {
+  font-family: var(--display);
+  font-size: clamp(22px, 6vw, 34px);
+  color: #4a5068;
+  background: var(--panel);
+  border: 2px solid var(--line);
+  border-radius: 4px;
+  padding: 10px 14px;
+  min-width: 1.2em;
+  text-align: center;
+}
+.letter-slot.active {
+  color: var(--green);
+  border-color: var(--green);
+  text-shadow: 0 0 10px rgba(107,255,107,0.7);
+  animation: blink 0.6s steps(1) infinite;
+}
+
+#crt-boot {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #fff;
+  pointer-events: none;
+  animation: crt-boot 0.7s ease-out forwards;
+}
+@keyframes crt-boot {
+  0% { opacity: 1; transform: scaleY(1); }
+  60% { opacity: 1; transform: scaleY(0.006); background: #fff; }
+  100% { opacity: 0; transform: scaleY(0.006); background: #fff; }
+}
 
 #stage {
   position: relative;

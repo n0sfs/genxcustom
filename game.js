@@ -9,6 +9,7 @@ const Game = (() => {
     gameover: document.getElementById('screen-gameover'),
     win: document.getElementById('screen-win'),
     pause: document.getElementById('screen-pause'),
+    initials: document.getElementById('screen-initials'),
   };
   const hudLevel = document.getElementById('hud-level');
   const hudScore = document.getElementById('hud-score');
@@ -18,13 +19,16 @@ const Game = (() => {
   const lcScore = document.getElementById('lc-score');
   const goScore = document.getElementById('go-score');
   const winScore = document.getElementById('win-score');
-  const titleHigh = document.getElementById('title-highscore');
+  const titleLeaderboard = document.getElementById('title-leaderboard');
+  const letterSlots = document.querySelectorAll('#screen-initials .letter-slot');
+  const marqueeTrack = document.getElementById('marquee-track');
   const levelListEl = document.getElementById('level-list');
   const touchDpad = document.getElementById('touch-dpad');
   const touchNumpad = document.getElementById('touch-numpad');
 
   const START_LIVES = 3;
-  const HS_KEY = 'genxArcadeHighScore';
+  const LB_KEY = 'genxArcadeLeaderboard';
+  const LB_MAX = 5;
   const MUTE_KEY = 'genxArcadeMuted';
 
   // --- tiny synthesized SFX engine (no audio files, all oscillator blips) ---
@@ -75,6 +79,7 @@ const Game = (() => {
     win: () => { tone(523, 0.12, 'square', 0.15, null, 0); tone(659, 0.12, 'square', 0.15, null, 0.12); tone(784, 0.12, 'square', 0.15, null, 0.24); tone(1046, 0.2, 'square', 0.16, null, 0.36); },
     lose: () => { tone(220, 0.16, 'sawtooth', 0.15, null, 0); tone(160, 0.22, 'sawtooth', 0.15, null, 0.14); },
     lifeLost: () => tone(140, 0.2, 'square', 0.15, 60),
+    coin: () => { tone(988, 0.05, 'square', 0.12, 1400, 0); tone(1318, 0.09, 'square', 0.14, null, 0.06); },
   };
 
   function sfx(name) {
@@ -93,16 +98,106 @@ const Game = (() => {
     if (!muted) ensureAudio();
   }
 
-  function getHighScore() {
-    return Number(localStorage.getItem(HS_KEY)) || 0;
+  // --- top-5 local leaderboard with classic arcade 3-letter initials ---
+  function getLeaderboard() {
+    try {
+      const list = JSON.parse(localStorage.getItem(LB_KEY));
+      return Array.isArray(list) ? list : [];
+    } catch (e) {
+      return [];
+    }
   }
 
-  function setHighScoreIfBeaten(score) {
-    if (score > getHighScore()) {
-      localStorage.setItem(HS_KEY, String(score));
-      return true;
+  function getBestScore() {
+    const lb = getLeaderboard();
+    return lb.length ? lb[0].score : 0;
+  }
+
+  function qualifiesForLeaderboard(score) {
+    if (score <= 0) return false;
+    const lb = getLeaderboard();
+    return lb.length < LB_MAX || score > lb[lb.length - 1].score;
+  }
+
+  function saveLeaderboardEntry(initials, score) {
+    const lb = getLeaderboard();
+    lb.push({ initials, score });
+    lb.sort((a, b) => b.score - a.score);
+    lb.length = Math.min(lb.length, LB_MAX);
+    localStorage.setItem(LB_KEY, JSON.stringify(lb));
+    return lb;
+  }
+
+  function renderTitleLeaderboard() {
+    if (!titleLeaderboard) return;
+    const lb = getLeaderboard();
+    if (!lb.length) {
+      titleLeaderboard.innerHTML = '<div class="lb-empty">NO SCORES YET — BE THE FIRST</div>';
+      return;
     }
-    return false;
+    titleLeaderboard.innerHTML = lb
+      .map((e, i) => `<div class="lb-row"><span>${i + 1}. ${e.initials}</span><span>${e.score}</span></div>`)
+      .join('');
+  }
+
+  function renderMarquee() {
+    if (!marqueeTrack) return;
+    const lb = getLeaderboard();
+    const topLine = lb.length ? `HIGH SCORE ${lb[0].score} BY ${lb[0].initials}` : 'NO HIGH SCORE YET — BE THE FIRST';
+    const messages = [
+      '★ GENX ARCADE ★',
+      '15 GAMES · ONE QUARTER',
+      topLine,
+      'INSERT COIN TO CONTINUE',
+      'CLICK ANY CABINET TO PLAY',
+    ];
+    const text = messages.join('    ◆    ');
+    marqueeTrack.textContent = `${text}    ◆    ${text}`;
+  }
+
+  const INITIAL_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  let initialsLetters = ['A', 'A', 'A'];
+  let initialsCursor = 0;
+
+  function renderInitials() {
+    letterSlots.forEach((el, i) => {
+      el.textContent = initialsLetters[i];
+      el.classList.toggle('active', i === initialsCursor);
+    });
+  }
+
+  function cycleLetter(dir) {
+    const cur = initialsLetters[initialsCursor];
+    const idx = (INITIAL_LETTERS.indexOf(cur) + dir + 26) % 26;
+    initialsLetters[initialsCursor] = INITIAL_LETTERS[idx];
+    renderInitials();
+  }
+
+  function startInitialsEntry(kind, score) {
+    state.mode = 'initials';
+    state.pendingResult = { kind, score };
+    initialsLetters = ['A', 'A', 'A'];
+    initialsCursor = 0;
+    renderInitials();
+    showScreen('initials');
+  }
+
+  function confirmInitials() {
+    const initials = initialsLetters.join('');
+    saveLeaderboardEntry(initials, state.pendingResult.score);
+    renderTitleLeaderboard();
+    renderMarquee();
+    const { kind, score } = state.pendingResult;
+    sfx('levelclear');
+    if (kind === 'win') {
+      state.mode = 'win';
+      winScore.textContent = `FINAL SCORE ${score}  — NEW HIGH SCORE, ${initials}!`;
+      showScreen('win');
+    } else {
+      state.mode = 'gameover';
+      goScore.textContent = `SCORE ${score}  — NEW HIGH SCORE, ${initials}!`;
+      showScreen('gameover');
+    }
   }
 
   const state = {
@@ -123,11 +218,15 @@ const Game = (() => {
     keys[normalizeKey(e.key)] = true;
 
     if (e.key === 'Enter') {
-      sfx('select');
-      if (state.mode === 'title') startRun(state.selectedLevel);
-      else if (state.mode === 'levelcomplete') advanceLevel();
-      else if (state.mode === 'gameover') startRun(state.selectedLevel);
-      else if (state.mode === 'win') startRun(state.selectedLevel);
+      if (state.mode === 'initials') {
+        confirmInitials();
+      } else {
+        sfx('select');
+        if (state.mode === 'title') startRun(state.selectedLevel);
+        else if (state.mode === 'levelcomplete') advanceLevel();
+        else if (state.mode === 'gameover') startRun(state.selectedLevel);
+        else if (state.mode === 'win') startRun(state.selectedLevel);
+      }
     }
     if (state.mode === 'title' && ['ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'].includes(e.key)) {
       const dir = (e.key === 'ArrowUp' || e.key === 'ArrowLeft') ? -1 : 1;
@@ -135,6 +234,12 @@ const Game = (() => {
       state.selectedLevel = (state.selectedLevel + dir + n) % n;
       sfx('hop');
       renderLevelSelection();
+    }
+    if (state.mode === 'initials') {
+      if (e.key === 'ArrowUp') { cycleLetter(1); sfx('hop'); }
+      else if (e.key === 'ArrowDown') { cycleLetter(-1); sfx('hop'); }
+      else if (e.key === 'ArrowLeft') { initialsCursor = (initialsCursor + 2) % 3; renderInitials(); sfx('select'); }
+      else if (e.key === 'ArrowRight') { initialsCursor = (initialsCursor + 1) % 3; renderInitials(); sfx('select'); }
     }
     if ((e.key === 'p' || e.key === 'P') && (state.mode === 'playing' || state.mode === 'pause')) {
       togglePause();
@@ -245,6 +350,7 @@ const Game = (() => {
   }
 
   function startRun(startIndex = 0) {
+    sfx('coin');
     state.levelIndex = startIndex;
     state.lives = START_LIVES;
     state.score = 0;
@@ -266,11 +372,14 @@ const Game = (() => {
   function advanceLevel() {
     state.levelIndex++;
     if (state.levelIndex >= state.levelDefs.length) {
-      state.mode = 'win';
-      const beat = setHighScoreIfBeaten(state.score);
-      winScore.textContent = `FINAL SCORE ${state.score}${beat ? '  — NEW HIGH SCORE!' : `  (BEST ${getHighScore()})`}`;
       sfx('win');
-      showScreen('win');
+      if (qualifiesForLeaderboard(state.score)) {
+        startInitialsEntry('win', state.score);
+      } else {
+        state.mode = 'win';
+        winScore.textContent = `FINAL SCORE ${state.score}  (BEST ${getBestScore()})`;
+        showScreen('win');
+      }
       return;
     }
     loadLevel(state.levelIndex);
@@ -289,8 +398,6 @@ const Game = (() => {
   }
 
   function quitToMenu() {
-    setHighScoreIfBeaten(state.score);
-    if (titleHigh) titleHigh.textContent = `HIGH SCORE ${getHighScore()}`;
     state.levelInstance = null;
     state.mode = 'title';
     showScreen('title');
@@ -306,11 +413,14 @@ const Game = (() => {
     updateHud();
     shake(0.3, 6);
     if (state.lives <= 0) {
-      state.mode = 'gameover';
-      const beat = setHighScoreIfBeaten(state.score);
-      goScore.textContent = `SCORE ${state.score}${beat ? '  — NEW HIGH SCORE!' : `  (BEST ${getHighScore()})`}`;
       sfx('lose');
-      showScreen('gameover');
+      if (qualifiesForLeaderboard(state.score)) {
+        startInitialsEntry('gameover', state.score);
+      } else {
+        state.mode = 'gameover';
+        goScore.textContent = `SCORE ${state.score}  (BEST ${getBestScore()})`;
+        showScreen('gameover');
+      }
     } else {
       sfx('lifeLost');
       state.levelInstance.init();
@@ -405,7 +515,8 @@ const Game = (() => {
 
   function boot() {
     updateSoundHud();
-    if (titleHigh) titleHigh.textContent = `HIGH SCORE ${getHighScore()}`;
+    renderTitleLeaderboard();
+    renderMarquee();
     renderLevelList();
     document.querySelectorAll('[data-key]').forEach(bindVirtualKey);
     showScreen('title');
