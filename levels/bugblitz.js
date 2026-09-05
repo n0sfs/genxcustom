@@ -13,9 +13,13 @@ function createBugBlitzLevel(api) {
   const SHOT_COOLDOWN = 0.17;
   const BULLET_SPEED = 460;
 
-  const SEGMENT_COUNT = 12;
-  const TARGET_DESTROYED = 40;
-  const BASE_STEP = 0.14;
+  let SEGMENT_COUNT = 12;
+  let TARGET_DESTROYED = 40;
+  let BASE_STEP = 0.14;
+  let MUSH_DENSITY_TOP = 0.15;
+  let MUSH_DENSITY_BOTTOM = 0.05;
+  let INITIAL_CHAINS = 1;
+  let currentStage = 1;
 
   const MUSHROOM_COLOR = '#ff6f91';
   const MUSHROOM_DAMAGED = '#a8455f';
@@ -24,6 +28,33 @@ function createBugBlitzLevel(api) {
 
   let player, bullets, mushrooms, chains, prevKeys;
   let shotCooldown, destroyedTotal, waveCount, particles, popups, hitFlash;
+
+  // Stage 1: baseline density/length/speed (unchanged from the original tuning).
+  // Stage 2: denser field, longer centipede, faster stepping.
+  // Stage 3: denser/longer/faster still, two centipede chains active from the start.
+  // Stage 4+: endless mode — smoothly scale stage 3's baseline, capped so it never
+  // becomes literally impossible.
+  function stageConfig(stage) {
+    const s = Math.max(1, Math.floor(stage));
+    if (s === 1) {
+      return { densityTop: 0.15, densityBottom: 0.05, segmentCount: 12, baseStep: 0.14, target: 40, chains: 1 };
+    }
+    if (s === 2) {
+      return { densityTop: 0.22, densityBottom: 0.08, segmentCount: 16, baseStep: 0.11, target: 55, chains: 1 };
+    }
+    if (s === 3) {
+      return { densityTop: 0.28, densityBottom: 0.10, segmentCount: 18, baseStep: 0.09, target: 70, chains: 2 };
+    }
+    const scale = Math.min(2.5, 1 + (s - 3) * 0.12);
+    return {
+      densityTop: Math.min(0.45, 0.28 * scale),
+      densityBottom: Math.min(0.2, 0.10 * scale),
+      segmentCount: Math.min(26, Math.round(18 + (s - 3) * 1.3)),
+      baseStep: Math.max(0.05, 0.09 / scale),
+      target: Math.round(70 + (s - 3) * 15),
+      chains: Math.min(4, 2 + Math.floor((s - 4) / 4)),
+    };
+  }
 
   function rectsOverlap(a, b) {
     return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
@@ -40,7 +71,7 @@ function createBugBlitzLevel(api) {
   function spawnMushroomField() {
     mushrooms = [];
     for (let row = 0; row < FIELD_ROWS; row++) {
-      const density = row >= FIELD_ROWS - 2 ? 0.05 : 0.15;
+      const density = row >= FIELD_ROWS - 2 ? MUSH_DENSITY_BOTTOM : MUSH_DENSITY_TOP;
       for (let col = 0; col < FIELD_COLS; col++) {
         if (Math.random() < density) {
           mushrooms.push({ row, col, hp: 2 });
@@ -62,13 +93,16 @@ function createBugBlitzLevel(api) {
     };
   }
 
-  function spawnChain(count) {
-    const startCol = Math.floor(FIELD_COLS / 2);
+  function spawnChain(count, index = 0) {
+    // Additional simultaneous chains (stage 3+) start offset from center and
+    // head the opposite direction so they don't just stack on chain 0.
+    const dir = index % 2 === 0 ? 1 : -1;
+    const startCol = Math.max(0, Math.min(FIELD_COLS - 1, Math.floor(FIELD_COLS / 2) + index * 5 * dir));
     const segments = [];
     for (let i = 0; i < count; i++) {
-      segments.push({ col: startCol - i, row: 0 });
+      segments.push({ col: startCol - i * dir, row: 0 });
     }
-    chains.push(makeChainFromSegments(segments, 1));
+    chains.push(makeChainFromSegments(segments, dir));
   }
 
   function difficultyFactor() {
@@ -112,7 +146,16 @@ function createBugBlitzLevel(api) {
   }
 
   return {
-    init() {
+    init(stage = 1) {
+      currentStage = stage;
+      const cfg = stageConfig(stage);
+      SEGMENT_COUNT = cfg.segmentCount;
+      TARGET_DESTROYED = cfg.target;
+      BASE_STEP = cfg.baseStep;
+      MUSH_DENSITY_TOP = cfg.densityTop;
+      MUSH_DENSITY_BOTTOM = cfg.densityBottom;
+      INITIAL_CHAINS = cfg.chains;
+
       player = { x: W / 2 - PLAYER_W / 2, y: PLAYER_Y, w: PLAYER_W, h: PLAYER_H };
       bullets = [];
       prevKeys = {};
@@ -124,7 +167,9 @@ function createBugBlitzLevel(api) {
       hitFlash = 0;
       spawnMushroomField();
       chains = [];
-      spawnChain(SEGMENT_COUNT);
+      for (let i = 0; i < INITIAL_CHAINS; i++) {
+        spawnChain(SEGMENT_COUNT, i);
+      }
     },
 
     update(dt) {
@@ -221,7 +266,7 @@ function createBugBlitzLevel(api) {
 
       if (chains.length === 0 && destroyedTotal < TARGET_DESTROYED) {
         waveCount += 1;
-        spawnChain(Math.min(14, SEGMENT_COUNT + waveCount));
+        spawnChain(Math.min(SEGMENT_COUNT + 8, SEGMENT_COUNT + waveCount));
       }
 
       if (destroyedTotal >= TARGET_DESTROYED) {

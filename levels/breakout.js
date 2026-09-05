@@ -3,11 +3,12 @@ function createBreakoutLevel(api) {
 
   const PADDLE_W = 80, PADDLE_H = 12;
   const BALL_R = 6;
-  const ROWS = 5, COLS = 10;
+  const COLS = 10;
   const BRICK_W = 56, BRICK_H = 18, BRICK_GAP = 6;
   const gridW = COLS * (BRICK_W + BRICK_GAP) - BRICK_GAP;
   const startX = (W - gridW) / 2;
   const colors = ['#ff4fa3', '#ffd24f', '#4fe3d0', '#6bff6b', '#8f8fff'];
+  const TOUGH_COLOR = '#dfe6ff';
   const POWERUP_CHANCE = 0.18;
   const POWERUP_TYPES = [
     { key: 'W', label: 'WIDE', color: '#6bff6b' },
@@ -15,31 +16,99 @@ function createBreakoutLevel(api) {
     { key: 'S', label: 'SLOW', color: '#4fe3d0' },
   ];
   const COMBO_WINDOW = 0.9;
-  const totalBricks = ROWS * COLS;
 
   let paddle, balls, bricks, particles, powerups, wideTimer, slowTimer;
   let comboCount, comboTimer, popups;
+  let curStage = 1;
+  let totalBricks = 0;
+
+  // stage 4+ ("endless mode") scales continuously off of stage 3's numbers
+  // instead of hand-tuning forever - capped so it never becomes unplayable
+  function endlessScale(stageNum) {
+    return Math.min(1 + Math.max(0, stageNum - 3) * 0.12, 2.5);
+  }
+
+  function stageSpeedMult(stageNum) {
+    if (stageNum <= 1) return 1.0;
+    if (stageNum === 2) return 1.15;
+    if (stageNum === 3) return 1.3;
+    return Math.min(1.3 * endlessScale(stageNum), 3.2);
+  }
+
+  function stageProgressCoeff(stageNum) {
+    if (stageNum <= 1) return 0.35;
+    if (stageNum === 2) return 0.42;
+    if (stageNum === 3) return 0.5;
+    return Math.min(0.5 + (stageNum - 3) * 0.03, 0.9);
+  }
+
+  // ---- stage layouts: (row, col) grids that get turned into brick objects ----
+
+  function layoutStage1() {
+    // the original full 5x10 wall - untouched default
+    const list = [];
+    for (let r = 0; r < 5; r++) {
+      for (let c = 0; c < COLS; c++) {
+        list.push({ r, c, hp: 1, color: colors[r % colors.length] });
+      }
+    }
+    return list;
+  }
+
+  function layoutStage2() {
+    // 6 rows with "window" gaps punched into every odd row, and a tough
+    // 2-hit shield along the top 2 rows - a genuinely different shape to
+    // fight through, not just the same wall sped up
+    const list = [];
+    for (let r = 0; r < 6; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (r % 2 === 1 && (c === 2 || c === 3 || c === 6 || c === 7)) continue;
+        const tough = r < 2;
+        list.push({ r, c, hp: tough ? 2 : 1, color: tough ? TOUGH_COLOR : colors[r % colors.length] });
+      }
+    }
+    return list;
+  }
+
+  function layoutStage3() {
+    // 7 rows, almost solid - only a narrow 2-brick slit dead center for the
+    // ball to sneak through - plus a checkerboard of 2-hit bricks, denser
+    // and tougher than stage 2
+    const list = [];
+    for (let r = 0; r < 7; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (r === 3 && (c === 4 || c === 5)) continue;
+        const tough = (r + c) % 3 === 0;
+        list.push({ r, c, hp: tough ? 2 : 1, color: tough ? TOUGH_COLOR : colors[r % colors.length] });
+      }
+    }
+    return list;
+  }
+
+  function makeBricks(stageNum) {
+    const layout = stageNum <= 1 ? layoutStage1() : stageNum === 2 ? layoutStage2() : layoutStage3();
+
+    // endless mode reuses stage 3's layout verbatim but piles extra hit
+    // points onto every brick as the stage climbs
+    const scale = endlessScale(stageNum);
+    const extraHp = stageNum > 3 ? Math.floor((scale - 1) * 2.2) : 0;
+
+    bricks = layout.map(({ r, c, hp, color }) => ({
+      x: startX + c * (BRICK_W + BRICK_GAP),
+      y: 40 + r * (BRICK_H + BRICK_GAP),
+      w: BRICK_W, h: BRICK_H,
+      alive: true,
+      hp: hp + extraHp,
+      color,
+    }));
+    totalBricks = bricks.length;
+  }
 
   function burst(x, y, color) {
     for (let i = 0; i < 8; i++) {
       const a = Math.random() * Math.PI * 2;
       const spd = 50 + Math.random() * 120;
       particles.push({ x, y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, life: 0.3, color });
-    }
-  }
-
-  function makeBricks() {
-    bricks = [];
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
-        bricks.push({
-          x: startX + c * (BRICK_W + BRICK_GAP),
-          y: 40 + r * (BRICK_H + BRICK_GAP),
-          w: BRICK_W, h: BRICK_H,
-          alive: true,
-          color: colors[r % colors.length],
-        });
-      }
     }
   }
 
@@ -138,9 +207,10 @@ function createBreakoutLevel(api) {
   }
 
   return {
-    init() {
+    init(stage = 1) {
+      curStage = stage;
       paddle = { x: W / 2 - PADDLE_W / 2, y: H - 30, w: PADDLE_W, h: PADDLE_H, speed: 320 };
-      makeBricks();
+      makeBricks(curStage);
       resetBalls();
       particles = [];
       powerups = [];
@@ -162,17 +232,21 @@ function createBreakoutLevel(api) {
       if (isDown('ArrowRight', 'd')) paddle.x += paddle.speed * dt;
       paddle.x = Math.max(0, Math.min(W - paddle.w, paddle.x));
 
-      // ball speed creeps up as the wall clears out, for an escalating arcade pace
+      // ball speed creeps up as the wall clears out, for an escalating arcade pace;
+      // the stage baseline (and, past stage 3, the endless-mode scale) stacks on top
       const aliveBricks = bricks.reduce((n, b) => n + (b.alive ? 1 : 0), 0);
       const destroyedFrac = 1 - aliveBricks / totalBricks;
-      const progressMult = 1 + destroyedFrac * 0.35;
-      const speedMult = (slowTimer > 0 ? 0.65 : 1) * progressMult;
+      const progressMult = 1 + destroyedFrac * stageProgressCoeff(curStage);
+      const speedMult = (slowTimer > 0 ? 0.65 : 1) * stageSpeedMult(curStage) * progressMult;
 
       balls.forEach((ball) => {
         if (ball.attached) {
           ball.x = paddle.x + paddle.w / 2;
           ball.y = paddle.y - BALL_R - 1;
           if (isDown('Space', 'ArrowUp', 'w')) {
+            // base launch velocity stays fixed - the per-frame speedMult below
+            // (which already folds in the stage baseline) is what actually
+            // makes higher stages feel faster, so this must not double it up
             ball.attached = false;
             ball.vx = 180 * (Math.random() < 0.5 ? -1 : 1);
             ball.vy = -320;
@@ -199,7 +273,15 @@ function createBreakoutLevel(api) {
         for (const b of bricks) {
           if (!b.alive) continue;
           if (circleRectOverlap(ball, BALL_R, b)) {
-            b.alive = false;
+            b.hp -= 1;
+            const destroyed = b.hp <= 0;
+            if (destroyed) {
+              b.alive = false;
+            } else {
+              // still standing (a tough multi-hit brick) - darken it a shade
+              // so the hit visibly registers before it finally breaks
+              b.color = FX.shade(b.color, -22);
+            }
 
             comboCount = comboTimer > 0 ? comboCount + 1 : 1;
             comboTimer = COMBO_WINDOW;
@@ -212,18 +294,20 @@ function createBreakoutLevel(api) {
               popups.push({ x: b.x + b.w / 2, y: b.y, text: `x${comboCount} +${bonus}`, life: 0.5 });
             }
 
-            const rowMates = bricks.filter((o) => o.y === b.y);
-            if (rowMates.every((o) => !o.alive)) {
-              addScore(25);
-              sfx('explosion');
-              shake(0.18, 5);
-              popups.push({ x: b.x + b.w / 2, y: b.y - 10, text: 'ROW CLEAR +25', life: 0.9 });
-              burst(b.x + b.w / 2, b.y + b.h / 2, b.color);
-            }
+            if (destroyed) {
+              const rowMates = bricks.filter((o) => o.y === b.y);
+              if (rowMates.every((o) => !o.alive)) {
+                addScore(25);
+                sfx('explosion');
+                shake(0.18, 5);
+                popups.push({ x: b.x + b.w / 2, y: b.y - 10, text: 'ROW CLEAR +25', life: 0.9 });
+                burst(b.x + b.w / 2, b.y + b.h / 2, b.color);
+              }
 
-            if (Math.random() < POWERUP_CHANCE) {
-              const type = POWERUP_TYPES[Math.floor(Math.random() * POWERUP_TYPES.length)];
-              powerups.push({ x: b.x + b.w / 2, y: b.y + b.h / 2, vy: 110, ...type });
+              if (Math.random() < POWERUP_CHANCE) {
+                const type = POWERUP_TYPES[Math.floor(Math.random() * POWERUP_TYPES.length)];
+                powerups.push({ x: b.x + b.w / 2, y: b.y + b.h / 2, vy: 110, ...type });
+              }
             }
             const overlapLeft = Math.abs(ball.x - b.x);
             const overlapRight = Math.abs(ball.x - (b.x + b.w));
@@ -286,7 +370,8 @@ function createBreakoutLevel(api) {
       popups = popups.filter((p) => p.life > 0);
 
       if (bricks.every((b) => !b.alive)) {
-        winLevel(40);
+        const clearBonus = Math.round(40 + (curStage - 1) * 8);
+        winLevel(clearBonus);
       }
     },
 

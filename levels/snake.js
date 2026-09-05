@@ -6,17 +6,86 @@ function createSnakeLevel(api) {
   const ROWS = H / CELL;
   const BASE_STEP = 0.11;
   const MIN_STEP = 0.058;
+  const ABS_MIN_STEP = 0.03;
   const WIN_LENGTH = 16;
   const GOLDEN_LIFE = 4;
   const STREAK_WINDOW = 2.6;
+  const ENDLESS_CAP = 2.6;
 
   let snake, dir, nextDir, food, timer, alive, golden, goldenTimer, eatStreak, streakTimer;
+  let walls, wallSet, inset, speedMult, winLength;
+
+  // A hollow-diamond cluster of wall cells centered on (cx, cy) — a
+  // recognizable static obstacle shape, not just a random blob.
+  function diamond(cx, cy) {
+    return [
+      { x: cx - 2, y: cy }, { x: cx + 2, y: cy },
+      { x: cx, y: cy - 2 }, { x: cx, y: cy + 2 },
+      { x: cx - 1, y: cy - 1 }, { x: cx + 1, y: cy - 1 },
+      { x: cx - 1, y: cy + 1 }, { x: cx + 1, y: cy + 1 },
+    ];
+  }
+
+  // Fills out an obstacle list to `count` cells with extra scattered single
+  // blocks (used by endless mode once the hand-built stage-3 layout stops
+  // being "enough"), staying clear of the spawn column and board edges.
+  function scatterExtra(base, count, insetAmt) {
+    const list = [...base];
+    const taken = new Set(list.map((c) => c.x + ',' + c.y));
+    let guard = 0;
+    while (list.length < count && guard < count * 40) {
+      guard++;
+      const x = insetAmt + 3 + Math.floor(Math.random() * (COLS - 2 * insetAmt - 6));
+      const y = insetAmt + 1 + Math.floor(Math.random() * (ROWS - 2 * insetAmt - 2));
+      const key = x + ',' + y;
+      if (taken.has(key) || (x <= 8 && y >= 9 && y <= 15)) continue; // keep spawn area clear
+      taken.add(key);
+      list.push({ x, y });
+    }
+    return list;
+  }
+
+  // Stage config: 3 hand-built stages, then a smooth endless ramp reusing
+  // stage 3's layout as its base.
+  function stageConfig(stage) {
+    const s = Math.max(1, Math.floor(stage));
+    if (s === 1) {
+      return { speedMult: 1, walls: [], inset: 0, winLength: WIN_LENGTH };
+    }
+    if (s === 2) {
+      return { speedMult: 1.25, walls: diamond(20, 12), inset: 0, winLength: WIN_LENGTH + 4 };
+    }
+    if (s === 3) {
+      return {
+        speedMult: 1.5,
+        walls: [...diamond(10, 8), ...diamond(23, 16), { x: 16, y: 4 }, { x: 16, y: 19 }],
+        inset: 2, // smaller effective play area — a 2-cell margin becomes solid
+        winLength: WIN_LENGTH + 8,
+      };
+    }
+    // Endless mode: stage 3 as the base, scaled continuously and capped so
+    // it never becomes literally unplayable.
+    const scale = Math.min(1 + (s - 3) * 0.12, ENDLESS_CAP);
+    const base = [...diamond(10, 8), ...diamond(23, 16), { x: 16, y: 4 }, { x: 16, y: 19 }];
+    const targetCount = Math.min(Math.round(base.length * scale), Math.floor(COLS * ROWS * 0.12));
+    return {
+      speedMult: Math.min(1.5 * scale, 3), // absolute cap: never faster than 3x stage-1 speed
+      walls: scatterExtra(base, targetCount, 2),
+      inset: 2,
+      winLength: Math.min(WIN_LENGTH + 8 + Math.round((s - 3) * 2), 80),
+    };
+  }
 
   function randomFood() {
     let cell;
+    let guard = 0;
     do {
-      cell = { x: Math.floor(Math.random() * COLS), y: Math.floor(Math.random() * ROWS) };
-    } while (snake.some((s) => s.x === cell.x && s.y === cell.y));
+      cell = {
+        x: inset + Math.floor(Math.random() * (COLS - 2 * inset)),
+        y: inset + Math.floor(Math.random() * (ROWS - 2 * inset)),
+      };
+      guard++;
+    } while (guard < 500 && (wallSet.has(cell.x + ',' + cell.y) || snake.some((s) => s.x === cell.x && s.y === cell.y)));
     return cell;
   }
 
@@ -55,7 +124,14 @@ function createSnakeLevel(api) {
   }
 
   return {
-    init() {
+    init(stage = 1) {
+      const cfg = stageConfig(stage);
+      speedMult = cfg.speedMult;
+      inset = cfg.inset;
+      winLength = cfg.winLength;
+      walls = cfg.walls;
+      wallSet = new Set(walls.map((w) => w.x + ',' + w.y));
+
       const startY = Math.floor(ROWS / 2);
       snake = [{ x: 6, y: startY }, { x: 5, y: startY }, { x: 4, y: startY }];
       dir = { x: 1, y: 0 };
@@ -87,7 +163,9 @@ function createSnakeLevel(api) {
         if (streakTimer <= 0) eatStreak = 0;
       }
 
-      const stepTime = Math.max(MIN_STEP, BASE_STEP - snake.length * 0.0035);
+      const effBase = BASE_STEP / speedMult;
+      const effMin = Math.max(ABS_MIN_STEP, MIN_STEP / speedMult);
+      const stepTime = Math.max(effMin, effBase - snake.length * 0.0035);
       timer += dt;
       if (timer < stepTime) return;
       timer -= stepTime;
@@ -101,7 +179,8 @@ function createSnakeLevel(api) {
       // snake dies "for no reason" chasing its own tail.
       const body = willEat ? snake : snake.slice(0, -1);
 
-      if (head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS ||
+      if (head.x < inset || head.x >= COLS - inset || head.y < inset || head.y >= ROWS - inset ||
+          wallSet.has(head.x + ',' + head.y) ||
           body.some((s) => s.x === head.x && s.y === head.y)) {
         alive = false;
         sfx('hurt');
@@ -122,7 +201,7 @@ function createSnakeLevel(api) {
           shake(0.12, 3);
         }
         if (snake.length % 4 === 0) shake(0.1, 2);
-        if (snake.length >= WIN_LENGTH) {
+        if (snake.length >= winLength) {
           shake(0.25, 5);
           winLevel(40 + streakBonus);
           return;
@@ -146,6 +225,17 @@ function createSnakeLevel(api) {
       for (let y = 0; y <= ROWS; y++) {
         ctx.beginPath(); ctx.moveTo(0, y * CELL); ctx.lineTo(W, y * CELL); ctx.stroke();
       }
+
+      if (inset > 0) {
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillRect(0, 0, W, inset * CELL);
+        ctx.fillRect(0, H - inset * CELL, W, inset * CELL);
+        ctx.fillRect(0, 0, inset * CELL, H);
+        ctx.fillRect(W - inset * CELL, 0, inset * CELL, H);
+      }
+      walls.forEach((wcell) => {
+        FX.bevelBlock(ctx, wcell.x * CELL + 1, wcell.y * CELL + 1, CELL - 2, CELL - 2, '#5a4a3a', 2);
+      });
 
       const fcx = food.x * CELL + CELL / 2, fcy = food.y * CELL + CELL / 2;
       ctx.fillStyle = '#3a7a2a';
@@ -200,7 +290,7 @@ function createSnakeLevel(api) {
 
       ctx.fillStyle = '#e8ecff';
       ctx.font = '9px monospace';
-      ctx.fillText(`LENGTH ${snake.length}/${WIN_LENGTH}`, 8, 16);
+      ctx.fillText(`LENGTH ${snake.length}/${winLength}`, 8, 16);
       if (eatStreak >= 2) {
         ctx.fillStyle = '#ffd24f';
         ctx.fillText(`STREAK x${eatStreak}`, 8, 28);

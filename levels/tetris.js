@@ -6,6 +6,9 @@ function createTetrisLevel(api) {
   const BOARD_X = 30, BOARD_Y = 0;
   const TARGET_LINES = 16;
   const CLEAR_SCORES = [0, 10, 30, 60, 100];
+  const BASE_FALL_INTERVAL = 0.8;
+  const MIN_FALL_INTERVAL = 0.15;
+  const ENDLESS_CAP = 2.6;
 
   const SHAPES = {
     I: { color: '#4fe3d0', rot: [
@@ -55,6 +58,46 @@ function createTetrisLevel(api) {
 
   let board, piece, nextType, bag, fallTimer, fallInterval, linesCleared, particles, combo;
   let leftPrev, rightPrev, leftHeld, rightHeld, leftRepeat, rightRepeat, rotPrev, dropPrev;
+  let baseFallInterval, targetLines;
+
+  const GARBAGE_COLOR = '#4a4a5e';
+
+  // Pre-placed "garbage" rows for the bottom of the board — each one full
+  // except for a single random gap, so it's a genuine obstacle (must be
+  // maneuvered around) rather than free lines. Leaves the top few rows
+  // clear so a piece always has room to spawn.
+  function buildGarbageRows(count) {
+    const rows = Array.from({ length: ROWS }, () => new Array(COLS).fill(null));
+    const safeCount = Math.min(count, ROWS - 6);
+    for (let i = 0; i < safeCount; i++) {
+      const r = ROWS - 1 - i;
+      const gap = Math.floor(Math.random() * COLS);
+      rows[r] = Array.from({ length: COLS }, (_, c) => (c === gap ? null : GARBAGE_COLOR));
+    }
+    return rows;
+  }
+
+  // Stage config: 3 hand-built stages, then a smooth endless ramp reusing
+  // stage 3's setup as its base, capped so it never becomes literally
+  // impossible.
+  function stageConfig(stage) {
+    const s = Math.max(1, Math.floor(stage));
+    if (s === 1) {
+      return { speedMult: 1, garbageRows: 0, targetLines: TARGET_LINES };
+    }
+    if (s === 2) {
+      return { speedMult: 1.2, garbageRows: 3, targetLines: TARGET_LINES + 4 };
+    }
+    if (s === 3) {
+      return { speedMult: 1.45, garbageRows: 6, targetLines: TARGET_LINES + 8 };
+    }
+    const scale = Math.min(1 + (s - 3) * 0.12, ENDLESS_CAP);
+    return {
+      speedMult: Math.min(1.45 * scale, 3), // absolute cap: never faster than 3x stage-1 speed
+      garbageRows: Math.min(Math.round(6 * scale), ROWS - 6),
+      targetLines: Math.min(TARGET_LINES + 8 + Math.round((s - 3) * 2), 60),
+    };
+  }
 
   function drawBag() {
     if (bag.length === 0) {
@@ -204,8 +247,8 @@ function createTetrisLevel(api) {
       shake(0.1 + cleared * 0.03, 2 + cleared * 1.5);
       // Smooth, continuous ramp instead of a stepped one every 3 lines —
       // avoids the flat "nothing changed" stretch between speed bumps.
-      fallInterval = Math.max(0.15, 0.8 - linesCleared * 0.035);
-      if (linesCleared >= TARGET_LINES) {
+      fallInterval = Math.max(MIN_FALL_INTERVAL, baseFallInterval - linesCleared * 0.035);
+      if (linesCleared >= targetLines) {
         winLevel(50);
         return;
       }
@@ -220,12 +263,17 @@ function createTetrisLevel(api) {
   }
 
   return {
-    init() {
-      board = Array.from({ length: ROWS }, () => new Array(COLS).fill(null));
+    init(stage = 1) {
+      const cfg = stageConfig(stage);
+      baseFallInterval = Math.max(MIN_FALL_INTERVAL, BASE_FALL_INTERVAL / cfg.speedMult);
+      targetLines = cfg.targetLines;
+      board = cfg.garbageRows > 0
+        ? buildGarbageRows(cfg.garbageRows)
+        : Array.from({ length: ROWS }, () => new Array(COLS).fill(null));
       bag = [];
       nextType = drawBag();
       spawnPiece();
-      fallInterval = 0.8;
+      fallInterval = baseFallInterval;
       linesCleared = 0;
       combo = 0;
       particles = [];
@@ -270,7 +318,7 @@ function createTetrisLevel(api) {
         addScore(dropped);
         sfx('hop');
         lockPiece();
-        if (linesCleared >= TARGET_LINES) return;
+        if (linesCleared >= targetLines) return;
       }
 
       fallTimer += dt * (downDown ? 9 : 1);
@@ -361,7 +409,7 @@ function createTetrisLevel(api) {
       });
 
       ctx.fillStyle = '#e8ecff';
-      ctx.fillText(`LINES ${linesCleared}/${TARGET_LINES}`, sideX, 130);
+      ctx.fillText(`LINES ${linesCleared}/${targetLines}`, sideX, 130);
       if (combo > 1) {
         ctx.fillStyle = '#ffd24f';
         ctx.fillText(`COMBO x${combo}`, sideX, 144);

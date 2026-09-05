@@ -11,7 +11,7 @@
   <div id="wrap">
     <div id="hud">
       <span id="hud-title">GENX ARCADE</span>
-      <span id="hud-level">LEVEL 1/15</span>
+      <span id="hud-level">SELECT A GAME</span>
       <span id="hud-score">SCORE 0</span>
       <span id="hud-lives">LIVES ▲▲▲</span>
       <span id="hud-sound">SOUND ON</span>
@@ -29,7 +29,6 @@
         <div class="levelist" id="level-list"></div>
         <p class="prompt blink">CLICK A GAME TO PLAY</p>
         <button class="menu-btn" data-key="Enter">START</button>
-        <div id="title-leaderboard" class="leaderboard"></div>
         <p class="controls">CLICK/TAP A GAME &middot; OR ARROWS + ENTER &middot; M MUTE</p>
       </div>
 
@@ -48,10 +47,10 @@
       </div>
 
       <div id="screen-win" class="screen hidden">
-        <h2 class="win">ARCADE CLEARED!</h2>
+        <h2 class="win">ALL STAGES CLEARED!</h2>
         <p id="win-score"></p>
-        <p class="prompt blink">PRESS ENTER FOR NEW GAME</p>
-        <button class="menu-btn" data-key="Enter">PLAY AGAIN</button>
+        <p class="prompt blink">PRESS ENTER TO CONTINUE INTO ENDLESS MODE</p>
+        <button class="menu-btn" data-key="Enter">CONTINUE</button>
       </div>
 
       <div id="screen-pause" class="screen hidden">
@@ -104,7 +103,7 @@
   </div>
 
   <script src="fx.js"></script>
-  <script src="game.js"></script>
+  <script src="game.js?v=2"></script>
   <script src="levels/shooter.js"></script>
   <script src="levels/platformer.js"></script>
   <script src="levels/breakout.js"></script>

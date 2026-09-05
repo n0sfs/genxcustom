@@ -2,11 +2,40 @@ function createPatternPulseLevel(api) {
   const { W, H, isDown, addScore, loseLife, winLevel, sfx, shake } = api;
 
   const DIRS = ['up', 'down', 'left', 'right'];
-  const TARGET_LEN = 10;
-  const LIT_TIME = 0.45;
-  const GAP_TIME = 0.2;
-  const START_PAUSE = 0.5;
-  const STEP_TIMEOUT = 3.5;
+
+  // Per-stage difficulty config. Stages 1-3 are hand-built; stage 4+ is
+  // "endless mode" — a smooth continuous scale-up off the stage-3 baseline,
+  // capped so deep stages stay merely hard instead of unreadable.
+  function computeStageConfig(stage) {
+    const s = Math.max(1, Math.floor(stage) || 1);
+
+    if (s === 1) {
+      return { startLen: 1, targetLen: 10, litTime: 0.45, gapTime: 0.2, startPause: 0.5, stepTimeout: 3.5 };
+    }
+    if (s === 2) {
+      return { startLen: 3, targetLen: 14, litTime: 0.36, gapTime: 0.16, startPause: 0.4, stepTimeout: 3.0 };
+    }
+    if (s === 3) {
+      return { startLen: 5, targetLen: 18, litTime: 0.3, gapTime: 0.13, startPause: 0.35, stepTimeout: 2.6 };
+    }
+
+    // Endless mode: stage 4+.
+    const n = s - 3;
+    const speedScale = Math.min(1 + n * 0.12, 2.3); // cap ~2.3x faster than stage 3
+    const startLen = Math.min(5 + Math.floor(n * 0.6), 20); // cap so the watch phase stays sane
+    const targetLen = Math.min(startLen + 12 + Math.floor(n * 1.0), 40);
+
+    return {
+      startLen,
+      targetLen: Math.max(targetLen, startLen + 1),
+      litTime: Math.max(0.3 / speedScale, 0.14),
+      gapTime: Math.max(0.13 / speedScale, 0.07),
+      startPause: Math.max(0.35 / speedScale, 0.18),
+      stepTimeout: Math.max(2.6 / speedScale, 1.3),
+    };
+  }
+
+  let TARGET_LEN, LIT_TIME, GAP_TIME, START_PAUSE, STEP_TIMEOUT, START_LEN;
 
   const cx = W / 2, cy = H / 2;
   const TL = [0, 0], TR = [W, 0], BR = [W, H], BL = [0, H], C = [cx, cy];
@@ -57,8 +86,18 @@ function createPatternPulseLevel(api) {
   }
 
   return {
-    init() {
-      sequence = [randomDir()];
+    init(stage = 1) {
+      const cfg = computeStageConfig(stage);
+      TARGET_LEN = cfg.targetLen;
+      LIT_TIME = cfg.litTime;
+      GAP_TIME = cfg.gapTime;
+      START_PAUSE = cfg.startPause;
+      STEP_TIMEOUT = cfg.stepTimeout;
+      START_LEN = cfg.startLen;
+
+      sequence = [];
+      for (let i = 0; i < START_LEN; i++) sequence.push(randomDir());
+
       prevKeys = {};
       flashQuad = -1;
       flashTimer = 0;

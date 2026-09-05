@@ -1,15 +1,38 @@
 function createWhackAMoleLevel(api) {
   const { W, H, isDown, addScore, loseLife, winLevel, sfx, shake } = api;
-  const BOMB_CHANCE = 0.2;
 
   const GRID = 3;
   const HOLE_R = 46;
   const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
-  const TARGET_SCORE = 30;
   const MISS_LIMIT = 4;
-  const UP_TIME_START = 1.05;
-  const UP_TIME_MIN = 0.55;
   const GAP_TIME = 0.35;
+
+  // Stage 1: the original default pacing.
+  const STAGE_CONFIGS = [
+    { upTimeStart: 1.05, upTimeMin: 0.55, bombChanceBase: 0.2, bombChanceCap: 0.35, targetScore: 30 },
+    // Stage 2: faster mole cycles, higher bomb chance from the start, higher target.
+    { upTimeStart: 0.85, upTimeMin: 0.45, bombChanceBase: 0.28, bombChanceCap: 0.4, targetScore: 45 },
+    // Stage 3: faster still, higher bomb chance, higher target.
+    { upTimeStart: 0.7, upTimeMin: 0.38, bombChanceBase: 0.34, bombChanceCap: 0.45, targetScore: 60 },
+  ];
+
+  function getStageConfig(stage) {
+    const idx = Math.min(Math.max(stage, 1), 3) - 1;
+    const base = STAGE_CONFIGS[idx];
+    if (stage <= 3) return base;
+    // Endless mode: stage 3's pacing is the base, scaled smoothly harder each stage,
+    // with hard caps so it never becomes unwinnable.
+    const scale = Math.min(1 + (stage - 3) * 0.12, 2.5);
+    return {
+      upTimeStart: Math.max(0.25, base.upTimeStart / scale),
+      upTimeMin: Math.max(0.18, base.upTimeMin / scale),
+      bombChanceBase: Math.min(0.5, base.bombChanceBase * Math.min(scale, 1.4)),
+      bombChanceCap: Math.min(0.55, base.bombChanceCap * Math.min(scale, 1.3)),
+      targetScore: base.targetScore + Math.round((stage - 3) * 15),
+    };
+  }
+
+  let UP_TIME_START, UP_TIME_MIN, BOMB_CHANCE, BOMB_CHANCE_CAP, TARGET_SCORE;
 
   const holes = [];
   for (let r = 0; r < GRID; r++) {
@@ -35,7 +58,7 @@ function createWhackAMoleLevel(api) {
     phase = 'up';
     activeHole = Math.floor(Math.random() * holes.length);
     const progress = Math.min(1, score / TARGET_SCORE);
-    const bombChance = Math.min(0.35, BOMB_CHANCE + progress * 0.12);
+    const bombChance = Math.min(BOMB_CHANCE_CAP, BOMB_CHANCE + progress * 0.12);
     // pity rule: never more than two bombs in a row, so a run of bad luck
     // can't chain into an unavoidable string of misses
     isBomb = consecutiveBombs < 2 && Math.random() < bombChance;
@@ -46,7 +69,14 @@ function createWhackAMoleLevel(api) {
   }
 
   return {
-    init() {
+    init(stage = 1) {
+      const cfg = getStageConfig(stage);
+      UP_TIME_START = cfg.upTimeStart;
+      UP_TIME_MIN = cfg.upTimeMin;
+      BOMB_CHANCE = cfg.bombChanceBase;
+      BOMB_CHANCE_CAP = cfg.bombChanceCap;
+      TARGET_SCORE = cfg.targetScore;
+
       score = 0;
       misses = 0;
       prevKeys = {};

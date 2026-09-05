@@ -9,21 +9,92 @@ function createFroggerLevel(api) {
   const HOP_COOLDOWN = 0.13;
   const START_COL = 8, START_ROW = 11;
   const GOAL_ROW = 1;
-  const GOAL_COLS = [2, 8, 13];
+  let GOAL_COLS = [2, 8, 13];
 
-  const ROAD_LANES = [
-    { row: 10, speed: 70, dir: 1, gap: 170, w: 44 },
-    { row: 9, speed: 100, dir: -1, gap: 200, w: 36 },
-    { row: 8, speed: 60, dir: 1, gap: 150, w: 50 },
-    { row: 7, speed: 130, dir: -1, gap: 220, w: 34 },
-  ];
-  const RIVER_LANES = [
-    { row: 5, speed: 50, dir: 1, gap: 200, w: 110 },
-    { row: 4, speed: 80, dir: -1, gap: 180, w: 70 },
-    { row: 3, speed: 40, dir: 1, gap: 230, w: 140 },
-    { row: 2, speed: 65, dir: -1, gap: 190, w: 90 },
-  ];
   const SPAN = W + 400;
+
+  // --- Per-stage layouts -------------------------------------------------
+  // Stage 1 keeps the original default lane speeds/layout. Stage 2 rearranges
+  // lane widths/gaps and speeds things up with a tighter clock. Stage 3 goes
+  // faster still and opens up an extra hazard lane on the median strip that
+  // used to be a safe resting row. Stage 4+ ("endless") reuses stage 3's
+  // layout as a base and smoothly scales speed/density/time with a cap so it
+  // never becomes literally impossible.
+  const STAGE_1 = {
+    road: [
+      { row: 10, speed: 70, dir: 1, gap: 170, w: 44 },
+      { row: 9, speed: 100, dir: -1, gap: 200, w: 36 },
+      { row: 8, speed: 60, dir: 1, gap: 150, w: 50 },
+      { row: 7, speed: 130, dir: -1, gap: 220, w: 34 },
+    ],
+    river: [
+      { row: 5, speed: 50, dir: 1, gap: 200, w: 110 },
+      { row: 4, speed: 80, dir: -1, gap: 180, w: 70 },
+      { row: 3, speed: 40, dir: 1, gap: 230, w: 140 },
+      { row: 2, speed: 65, dir: -1, gap: 190, w: 90 },
+    ],
+    hazard: null,
+    goalCols: [2, 8, 13],
+    timeLimit: 25,
+  };
+  const STAGE_2 = {
+    road: [
+      { row: 10, speed: 100, dir: -1, gap: 140, w: 40 },
+      { row: 9, speed: 140, dir: 1, gap: 160, w: 40 },
+      { row: 8, speed: 90, dir: -1, gap: 130, w: 56 },
+      { row: 7, speed: 170, dir: 1, gap: 180, w: 30 },
+    ],
+    river: [
+      { row: 5, speed: 75, dir: -1, gap: 170, w: 90 },
+      { row: 4, speed: 110, dir: 1, gap: 150, w: 56 },
+      { row: 3, speed: 60, dir: -1, gap: 190, w: 120 },
+      { row: 2, speed: 95, dir: 1, gap: 160, w: 70 },
+    ],
+    hazard: null,
+    goalCols: [1, 6, 10, 14],
+    timeLimit: 20,
+  };
+  const STAGE_3 = {
+    road: [
+      { row: 10, speed: 130, dir: 1, gap: 120, w: 40 },
+      { row: 9, speed: 170, dir: -1, gap: 140, w: 38 },
+      { row: 8, speed: 110, dir: 1, gap: 110, w: 54 },
+      { row: 7, speed: 200, dir: -1, gap: 160, w: 28 },
+    ],
+    river: [
+      { row: 5, speed: 95, dir: 1, gap: 150, w: 80 },
+      { row: 4, speed: 140, dir: -1, gap: 130, w: 50 },
+      { row: 3, speed: 80, dir: 1, gap: 170, w: 110 },
+      { row: 2, speed: 120, dir: -1, gap: 140, w: 64 },
+    ],
+    // The median strip (row 6), a safe resting lane in stages 1-2, becomes a
+    // fast single-direction hazard lane from stage 3 onward.
+    hazard: { row: 6, speed: 160, dir: 1, gap: 130, w: 30 },
+    goalCols: [1, 5, 8, 11, 14],
+    timeLimit: 16,
+  };
+
+  function getStageConfig(stage) {
+    if (stage <= 1) return STAGE_1;
+    if (stage === 2) return STAGE_2;
+    if (stage === 3) return STAGE_3;
+
+    // Endless mode: stage 3's layout scaled smoothly harder, capped so it
+    // never becomes unfair even deep into a long run.
+    const scale = Math.min(2.6, 1 + (stage - 3) * 0.12);
+    const scaleLane = (l) => ({
+      ...l,
+      speed: l.speed * scale,
+      gap: Math.max(70, l.gap / Math.sqrt(scale)),
+    });
+    return {
+      road: STAGE_3.road.map(scaleLane),
+      river: STAGE_3.river.map(scaleLane),
+      hazard: STAGE_3.hazard ? scaleLane(STAGE_3.hazard) : null,
+      goalCols: STAGE_3.goalCols,
+      timeLimit: Math.max(10, STAGE_3.timeLimit - (stage - 3) * 0.6),
+    };
+  }
 
   function wrap(x) {
     let v = (x + 200) % SPAN;
@@ -46,8 +117,8 @@ function createFroggerLevel(api) {
     return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   }
 
-  const TIME_LIMIT = 25;
-  let frog, prevKeys, hopTimer, roads, rivers, goalsFilled, bestRow, timeLeft, fly, flyTimer, flyLife, waterTime, speedMul, nearMissTimer;
+  let TIME_LIMIT = 25;
+  let frog, prevKeys, hopTimer, roads, rivers, goalsFilled, bestRow, timeLeft, fly, flyTimer, flyLife, waterTime, speedMul, nearMissTimer, hasHazardLane;
 
   function drawFrog(ctx, f) {
     const cx = f.x + f.w / 2, cy = f.y + f.h / 2;
@@ -131,12 +202,17 @@ function createFroggerLevel(api) {
   }
 
   return {
-    init() {
+    init(stage = 1) {
+      const cfg = getStageConfig(stage);
+      GOAL_COLS = cfg.goalCols;
+      TIME_LIMIT = cfg.timeLimit;
+      hasHazardLane = !!cfg.hazard;
+
       frog = { col: START_COL, row: START_ROW, x: START_COL * CELL + FROG_OFF, y: START_ROW * CELL + FROG_OFF, w: FROG_SIZE, h: FROG_SIZE };
       prevKeys = {};
       hopTimer = 0;
-      roads = makeLaneEntities(ROAD_LANES);
-      rivers = makeLaneEntities(RIVER_LANES);
+      roads = makeLaneEntities(cfg.hazard ? [...cfg.road, cfg.hazard] : cfg.road);
+      rivers = makeLaneEntities(cfg.river);
       goalsFilled = GOAL_COLS.map(() => false);
       bestRow = START_ROW;
       timeLeft = TIME_LIMIT;
@@ -340,7 +416,14 @@ function createFroggerLevel(api) {
         });
       });
 
-      FX.gradientRect(ctx, 0, 6 * CELL, W, CELL, '#357d3a', '#1c4a20');
+      if (hasHazardLane) {
+        // Fast hazard strip replacing the usual safe median resting row.
+        FX.gradientRect(ctx, 0, 6 * CELL, W, CELL, '#4a3a1a', '#241c0c');
+        ctx.fillStyle = 'rgba(255,200,40,0.3)';
+        for (let tx = 4; tx < W; tx += 16) ctx.fillRect(tx, 6 * CELL + CELL / 2 - 1, 8, 3);
+      } else {
+        FX.gradientRect(ctx, 0, 6 * CELL, W, CELL, '#357d3a', '#1c4a20');
+      }
 
       FX.gradientRect(ctx, 0, 7 * CELL, W, 4 * CELL, '#3a3a3a', '#1c1c1c');
       // dashed lane-divider markings between the four road rows

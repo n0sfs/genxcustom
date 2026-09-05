@@ -12,13 +12,44 @@ function createSkyDefenseLevel(api) {
   const INTERCEPTOR_SPEED = 950;
   const BLAST_PEAK = 40;
   const BLAST_LIFE = 0.35;
-  const TARGET_KILLS = 25;
+  let TARGET_KILLS = 25;
   const SURVIVAL_BONUS_STEP = 5;
 
   function dist(x1, y1, x2, y2) { return Math.hypot(x1 - x2, y1 - y2); }
 
   let cities, crosshair, fireCooldown, interceptors, blasts, missiles, particles, impacts, stars;
   let spawnTimer, elapsed, kills, nextSurvivalBonusAt;
+  let currentStage = 1;
+  let stageIntervalBase, stageIntervalFloor, stageSpeedBase, stageSpeedVar, stageSpeedRampCap, stageBurstChance;
+
+  // Stage 1: baseline missile spawn rate (unchanged from the original tuning).
+  // Stage 2: noticeably faster spawn rate, occasional simultaneous missiles, higher target.
+  // Stage 3: faster/denser still, higher target.
+  // Stage 4+: endless mode — smoothly scale stage 3's baseline, capped so it never
+  // becomes literally impossible. This baseline layers underneath the existing
+  // within-stage ramp (elapsed/kills based) in difficultyInterval()/spawnMissile().
+  function stageConfig(stage) {
+    const s = Math.max(1, Math.floor(stage));
+    if (s === 1) {
+      return { intervalBase: 2.1, intervalFloor: 0.45, speedBase: 46, speedVar: 18, speedRampCap: 70, target: 25, burstChance: 0 };
+    }
+    if (s === 2) {
+      return { intervalBase: 1.5, intervalFloor: 0.38, speedBase: 60, speedVar: 22, speedRampCap: 90, target: 35, burstChance: 0.15 };
+    }
+    if (s === 3) {
+      return { intervalBase: 1.1, intervalFloor: 0.32, speedBase: 74, speedVar: 26, speedRampCap: 110, target: 45, burstChance: 0.3 };
+    }
+    const scale = Math.min(2.5, 1 + (s - 3) * 0.12);
+    return {
+      intervalBase: Math.max(0.5, 1.1 / scale),
+      intervalFloor: Math.max(0.18, 0.32 / scale),
+      speedBase: Math.min(74 * 2.2, 74 * scale),
+      speedVar: Math.min(26 * 2.2, 26 * scale),
+      speedRampCap: Math.min(110 * 2.2, 110 * scale),
+      target: Math.round(45 + (s - 3) * 10),
+      burstChance: Math.min(0.6, 0.3 * scale),
+    };
+  }
 
   function spawnCities() {
     cities = CITY_XS.map((x) => ({
@@ -45,8 +76,8 @@ function createSkyDefenseLevel(api) {
   }
 
   function difficultyInterval() {
-    const base = 2.1 - elapsed * 0.014 - kills * 0.018;
-    return Math.max(0.45, base) + Math.random() * 0.35;
+    const base = stageIntervalBase - elapsed * 0.014 - kills * 0.018;
+    return Math.max(stageIntervalFloor, base) + Math.random() * 0.35;
   }
 
   function pickMissileTarget() {
@@ -60,7 +91,7 @@ function createSkyDefenseLevel(api) {
   function spawnMissile() {
     const startX = 10 + Math.random() * (W - 20);
     const target = pickMissileTarget();
-    const speed = 46 + Math.random() * 18 + Math.min(70, elapsed * 1.1 + kills * 0.6);
+    const speed = stageSpeedBase + Math.random() * stageSpeedVar + Math.min(stageSpeedRampCap, elapsed * 1.1 + kills * 0.6);
     const ang = Math.atan2(target.y - 0, target.x - startX);
     missiles.push({
       x: startX, y: 0,
@@ -79,7 +110,17 @@ function createSkyDefenseLevel(api) {
   }
 
   return {
-    init() {
+    init(stage = 1) {
+      currentStage = stage;
+      const cfg = stageConfig(stage);
+      stageIntervalBase = cfg.intervalBase;
+      stageIntervalFloor = cfg.intervalFloor;
+      stageSpeedBase = cfg.speedBase;
+      stageSpeedVar = cfg.speedVar;
+      stageSpeedRampCap = cfg.speedRampCap;
+      stageBurstChance = cfg.burstChance;
+      TARGET_KILLS = cfg.target;
+
       spawnCities();
       spawnStars();
       crosshair = { x: W / 2, y: H / 2 };
@@ -140,6 +181,8 @@ function createSkyDefenseLevel(api) {
       spawnTimer -= dt;
       if (spawnTimer <= 0 && kills < TARGET_KILLS) {
         spawnMissile();
+        // Higher stages sometimes throw a second missile in at the same moment.
+        if (Math.random() < stageBurstChance) spawnMissile();
         spawnTimer = difficultyInterval();
       }
 

@@ -9,36 +9,161 @@ function createPlatformerLevel(api) {
   const JUMP_BUFFER = 0.12;
   const FALL_IMPACT_VY = 900;
 
-  const platforms = [
-    { x: 0, y: GROUND_Y, w: 300, h: 40 },
-    { x: 380, y: GROUND_Y, w: 220, h: 40 },
-    { x: 660, y: GROUND_Y - 70, w: 140, h: 20 },
-    { x: 860, y: GROUND_Y, w: 260, h: 40 },
-    { x: 1180, y: GROUND_Y - 70, w: 120, h: 20 },
-    { x: 1360, y: GROUND_Y - 40, w: 120, h: 20 },
-    { x: 1540, y: GROUND_Y, w: 260, h: 40 },
-    { x: 1860, y: GROUND_Y - 60, w: 100, h: 20 },
-    { x: 2020, y: GROUND_Y, w: 400, h: 40 },
-  ];
-  const WORLD_END = 2420;
-  const flag = { x: WORLD_END - 40, y: GROUND_Y - 90, w: 12, h: 90 };
-  const coins = [
-    { x: 440, y: GROUND_Y - 40 }, { x: 500, y: GROUND_Y - 40 },
-    { x: 700, y: GROUND_Y - 110 },
-    { x: 920, y: GROUND_Y - 40 }, { x: 980, y: GROUND_Y - 40 }, { x: 1040, y: GROUND_Y - 40 },
-    { x: 1210, y: GROUND_Y - 140 },
-    { x: 1600, y: GROUND_Y - 40 }, { x: 1660, y: GROUND_Y - 40 },
-    { x: 2100, y: GROUND_Y - 40 }, { x: 2160, y: GROUND_Y - 40 },
-  ];
-  const enemySpawns = [
-    { x: 420, range: [400, 560] },
-    { x: 900, range: [880, 1080] },
-    { x: 1580, range: [1560, 1760] },
-    { x: 2060, range: [2040, 2340] },
+  // Three hand-built stage layouts. Stage 1 is the original default layout.
+  // Stage 2 and 3 are genuinely different platform/gap arrangements (not
+  // re-skins) with progressively more and faster enemies. Stage 4+ ("endless
+  // mode") reuses stage 3's layout as a base and applies a smooth continuous
+  // difficulty-scaling formula on top (see buildStageData below).
+  const STAGE_LAYOUTS = [
+    // --- Stage 1: original default layout ---
+    {
+      platforms: [
+        { x: 0, y: GROUND_Y, w: 300, h: 40 },
+        { x: 380, y: GROUND_Y, w: 220, h: 40 },
+        { x: 660, y: GROUND_Y - 70, w: 140, h: 20 },
+        { x: 860, y: GROUND_Y, w: 260, h: 40 },
+        { x: 1180, y: GROUND_Y - 70, w: 120, h: 20 },
+        { x: 1360, y: GROUND_Y - 40, w: 120, h: 20 },
+        { x: 1540, y: GROUND_Y, w: 260, h: 40 },
+        { x: 1860, y: GROUND_Y - 60, w: 100, h: 20 },
+        { x: 2020, y: GROUND_Y, w: 400, h: 40 },
+      ],
+      worldEnd: 2420,
+      coins: [
+        { x: 440, y: GROUND_Y - 40 }, { x: 500, y: GROUND_Y - 40 },
+        { x: 700, y: GROUND_Y - 110 },
+        { x: 920, y: GROUND_Y - 40 }, { x: 980, y: GROUND_Y - 40 }, { x: 1040, y: GROUND_Y - 40 },
+        { x: 1210, y: GROUND_Y - 140 },
+        { x: 1600, y: GROUND_Y - 40 }, { x: 1660, y: GROUND_Y - 40 },
+        { x: 2100, y: GROUND_Y - 40 }, { x: 2160, y: GROUND_Y - 40 },
+      ],
+      enemySpawns: [
+        { x: 420, range: [400, 560], baseSpeed: 55 },
+        { x: 900, range: [880, 1080], baseSpeed: 70 },
+        { x: 1580, range: [1560, 1760], baseSpeed: 85 },
+        { x: 2060, range: [2040, 2340], baseSpeed: 100 },
+      ],
+    },
+    // --- Stage 2: tighter staircase gaps, more/faster enemies ---
+    {
+      platforms: [
+        { x: 0, y: GROUND_Y, w: 180, h: 40 },
+        { x: 260, y: GROUND_Y - 50, w: 90, h: 20 },
+        { x: 430, y: GROUND_Y - 100, w: 80, h: 20 },
+        { x: 600, y: GROUND_Y - 50, w: 90, h: 20 },
+        { x: 780, y: GROUND_Y, w: 160, h: 40 },
+        { x: 1020, y: GROUND_Y - 60, w: 70, h: 20 },
+        { x: 1170, y: GROUND_Y - 120, w: 70, h: 20 },
+        { x: 1320, y: GROUND_Y - 60, w: 70, h: 20 },
+        { x: 1470, y: GROUND_Y, w: 180, h: 40 },
+        { x: 1730, y: GROUND_Y - 40, w: 60, h: 20 },
+        { x: 1870, y: GROUND_Y - 90, w: 60, h: 20 },
+        { x: 2010, y: GROUND_Y - 40, w: 60, h: 20 },
+        { x: 2150, y: GROUND_Y, w: 340, h: 40 },
+      ],
+      worldEnd: 2560,
+      coins: [
+        { x: 300, y: GROUND_Y - 90 }, { x: 340, y: GROUND_Y - 90 },
+        { x: 460, y: GROUND_Y - 140 },
+        { x: 630, y: GROUND_Y - 90 },
+        { x: 820, y: GROUND_Y - 40 }, { x: 880, y: GROUND_Y - 40 },
+        { x: 1050, y: GROUND_Y - 100 },
+        { x: 1200, y: GROUND_Y - 160 },
+        { x: 1500, y: GROUND_Y - 40 }, { x: 1560, y: GROUND_Y - 40 },
+        { x: 2200, y: GROUND_Y - 40 }, { x: 2260, y: GROUND_Y - 40 }, { x: 2320, y: GROUND_Y - 40 },
+      ],
+      enemySpawns: [
+        { x: 40, range: [20, 160], baseSpeed: 70 },
+        { x: 300, range: [260, 350], baseSpeed: 88 },
+        { x: 800, range: [780, 940], baseSpeed: 106 },
+        { x: 1500, range: [1480, 1650], baseSpeed: 124 },
+        { x: 1750, range: [1730, 1870], baseSpeed: 142 },
+        { x: 2170, range: [2150, 2490], baseSpeed: 160 },
+      ],
+    },
+    // --- Stage 3: bigger gaps, narrower ledges, most/fastest enemies ---
+    {
+      platforms: [
+        { x: 0, y: GROUND_Y, w: 140, h: 40 },
+        { x: 260, y: GROUND_Y - 60, w: 60, h: 20 },
+        { x: 460, y: GROUND_Y - 120, w: 60, h: 20 },
+        { x: 660, y: GROUND_Y - 60, w: 60, h: 20 },
+        { x: 860, y: GROUND_Y, w: 140, h: 40 },
+        { x: 1100, y: GROUND_Y - 70, w: 55, h: 20 },
+        { x: 1300, y: GROUND_Y - 140, w: 55, h: 20 },
+        { x: 1500, y: GROUND_Y - 70, w: 55, h: 20 },
+        { x: 1700, y: GROUND_Y, w: 140, h: 40 },
+        { x: 1940, y: GROUND_Y - 50, w: 50, h: 20 },
+        { x: 2120, y: GROUND_Y - 110, w: 50, h: 20 },
+        { x: 2300, y: GROUND_Y - 50, w: 50, h: 20 },
+        { x: 2480, y: GROUND_Y, w: 320, h: 40 },
+      ],
+      worldEnd: 2900,
+      coins: [
+        { x: 290, y: GROUND_Y - 100 },
+        { x: 490, y: GROUND_Y - 160 },
+        { x: 690, y: GROUND_Y - 100 },
+        { x: 900, y: GROUND_Y - 40 }, { x: 950, y: GROUND_Y - 40 },
+        { x: 1130, y: GROUND_Y - 110 },
+        { x: 1330, y: GROUND_Y - 180 },
+        { x: 1530, y: GROUND_Y - 110 },
+        { x: 1740, y: GROUND_Y - 40 }, { x: 1790, y: GROUND_Y - 40 },
+        { x: 2560, y: GROUND_Y - 40 }, { x: 2620, y: GROUND_Y - 40 }, { x: 2680, y: GROUND_Y - 40 },
+      ],
+      enemySpawns: [
+        { x: 40, range: [20, 130], baseSpeed: 85 },
+        { x: 300, range: [260, 320], baseSpeed: 105 },
+        { x: 700, range: [660, 720], baseSpeed: 125 },
+        { x: 900, range: [880, 990], baseSpeed: 145 },
+        { x: 1140, range: [1100, 1155], baseSpeed: 165 },
+        { x: 1740, range: [1720, 1830], baseSpeed: 185 },
+        { x: 1980, range: [1940, 1990], baseSpeed: 205 },
+        { x: 2520, range: [2500, 2790], baseSpeed: 225 },
+      ],
+    },
   ];
 
+  // Builds the concrete layout + enemy roster for a given stage number.
+  // Stages 1-3 use their hand-built layout as-is. Stage 4+ reuses stage 3's
+  // layout and applies a smooth, continuous difficulty scale to enemy speed
+  // and count, capped so endless mode never becomes literally impossible.
+  function buildStageData(stage) {
+    const layoutIndex = Math.min(stage, 3) - 1;
+    const layout = STAGE_LAYOUTS[layoutIndex];
+    const isEndless = stage > 3;
+    const scale = isEndless ? Math.min(1 + (stage - 3) * 0.12, 2.5) : 1;
+
+    const enemies = layout.enemySpawns.map((s) => ({
+      x: s.x, y: GROUND_Y - 18, w: 20, h: 18, dir: 1, range: s.range, alive: true,
+      speed: s.baseSpeed * scale,
+    }));
+
+    if (isEndless) {
+      // Layer in a few extra patrolling enemies as endless stages climb,
+      // capped so the level doesn't get flooded with hazards.
+      const extraCount = Math.min(Math.floor((stage - 3) / 2), 3);
+      for (let i = 0; i < extraCount; i++) {
+        const src = layout.enemySpawns[i % layout.enemySpawns.length];
+        const mid = (src.range[0] + src.range[1]) / 2;
+        enemies.push({
+          x: mid, y: GROUND_Y - 18, w: 20, h: 18, dir: -1, range: src.range, alive: true,
+          speed: (src.baseSpeed + 20) * scale,
+        });
+      }
+    }
+
+    return {
+      platforms: layout.platforms,
+      coins: layout.coins.map((c) => ({ ...c, taken: false })),
+      enemies,
+      worldEnd: layout.worldEnd,
+      flag: { x: layout.worldEnd - 40, y: GROUND_Y - 90, w: 12, h: 90 },
+    };
+  }
+
+  let platforms, coins, enemySpawns, WORLD_END, flag; // eslint-disable-line no-unused-vars
   let player, camX, enemies, coinList, onGround, spawnX, spawnY, particles, jumpKeyPrev;
-  let hasStarted, checkpoint, coyoteTimer, jumpBufferTimer, stompChain;
+  let currentStage, checkpoint, coyoteTimer, jumpBufferTimer, stompChain;
 
   function drawHero(ctx, p) {
     const cx = p.x + p.w / 2;
@@ -121,21 +246,29 @@ function createPlatformerLevel(api) {
   }
 
   return {
-    init() {
-      if (!hasStarted) {
-        // First-ever init for this instance: full fresh start. A retry after
-        // losing a life re-calls init() on this SAME instance (see game.js),
-        // so anything not reset here (enemies, coins, checkpoint) survives a
-        // death — dying mid-level sends you back to your last checkpoint,
-        // not all the way to the start with everything undone.
-        hasStarted = true;
+    init(stage = 1) {
+      const isNewStage = stage !== currentStage;
+
+      if (isNewStage) {
+        // Moving to a new stage (either the very first init, or advancing
+        // after winLevel()): rebuild the layout, enemies and coins for this
+        // stage and reset the checkpoint — a checkpoint from the previous
+        // stage must never leak into the new one.
+        currentStage = stage;
         checkpoint = null;
-        enemies = enemySpawns.map((s, i) => ({
-          x: s.x, y: GROUND_Y - 18, w: 20, h: 18, dir: 1, range: s.range, alive: true,
-          speed: 55 + i * 15, // gentle ramp: later enemies patrol a bit faster
-        }));
-        coinList = coins.map((c) => ({ ...c, taken: false }));
+        const data = buildStageData(stage);
+        platforms = data.platforms;
+        coins = data.coins;
+        WORLD_END = data.worldEnd;
+        flag = data.flag;
+        enemies = data.enemies;
+        coinList = data.coins;
       }
+      // else: a same-stage retry after losing a life re-calls init() with the
+      // same stage number (see game.js) — enemies/coins/checkpoint from this
+      // attempt are intentionally left untouched so a death sends you back
+      // to your last checkpoint, not all the way to the start with progress
+      // undone.
 
       spawnX = checkpoint ? checkpoint.x : 20;
       spawnY = checkpoint ? checkpoint.y : GROUND_Y - 28;

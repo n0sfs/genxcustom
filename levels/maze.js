@@ -10,9 +10,21 @@ function createMazeLevel(api) {
   const OX = (W - COLS * CELL) / 2;
   const OY = (H - ROWS * CELL) / 2;
 
-  function buildMaze() {
+  function shuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  }
+
+  // Shared recursive-backtracker carve, parametrized by seed cell + braid
+  // (extra-loop) chance so each stage can produce a genuinely different wall
+  // layout without duplicating the whole generator.
+  function carveFrom(seedCx, seedCy, braidChance, colLimit) {
     const grid = Array.from({ length: ROWS }, () => Array(COLS).fill(1));
     const visited = Array.from({ length: M_ROWS }, () => Array(M_COLS).fill(false));
+    const maxCol = colLimit == null ? M_COLS : colLimit;
 
     function carve(cx, cy) {
       visited[cy][cx] = true;
@@ -20,29 +32,57 @@ function createMazeLevel(api) {
       const dirs = shuffle([[0, -1], [0, 1], [-1, 0], [1, 0]]);
       for (const [dx, dy] of dirs) {
         const nx = cx + dx, ny = cy + dy;
-        if (nx >= 0 && nx < M_COLS && ny >= 0 && ny < M_ROWS && !visited[ny][nx]) {
+        if (nx >= 0 && nx < maxCol && ny >= 0 && ny < M_ROWS && !visited[ny][nx]) {
           grid[cy * 2 + 1 + dy][cx * 2 + 1 + dx] = 0;
           carve(nx, ny);
         }
       }
     }
-    carve(0, 0);
+    carve(seedCx, seedCy);
 
+    const braidMaxGx = colLimit == null ? COLS - 1 : colLimit * 2;
     for (let gy = 1; gy < ROWS - 1; gy++) {
-      for (let gx = 1; gx < COLS - 1; gx++) {
+      for (let gx = 1; gx < braidMaxGx; gx++) {
         const between = (gx % 2 === 0 && gy % 2 === 1) || (gx % 2 === 1 && gy % 2 === 0);
-        if (between && grid[gy][gx] === 1 && Math.random() < 0.15) grid[gy][gx] = 0;
+        if (between && grid[gy][gx] === 1 && Math.random() < braidChance) grid[gy][gx] = 0;
       }
     }
     return grid;
   }
 
-  function shuffle(arr) {
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
+  // Stage 1: original default layout — corner-seeded, light braid (a fairly
+  // tree-like maze with deep dead ends).
+  function buildMazeStage1() {
+    return carveFrom(0, 0, 0.15, null);
+  }
+
+  // Stage 2: seeded from the center instead of a corner, with more braiding —
+  // corridors radiate outward from the middle and there are noticeably more
+  // loops/alternate routes, a genuinely different topology from stage 1.
+  function buildMazeStage2() {
+    return carveFrom(Math.floor(M_COLS / 2), Math.floor(M_ROWS / 2), 0.25, null);
+  }
+
+  // Stage 3: mirrored/symmetric maze — only the left half (plus the shared
+  // center column) is carved, then mirrored onto the right half, producing a
+  // classic symmetric arcade-maze layout that reads completely differently
+  // on screen from stages 1-2.
+  function buildMazeStage3() {
+    const halfCols = Math.ceil(M_COLS / 2); // 5 -> maze columns 0..4, grid col 9 shared
+    const grid = carveFrom(0, Math.floor(M_ROWS / 2), 0.3, halfCols);
+    for (let gy = 0; gy < ROWS; gy++) {
+      for (let gx = 0; gx < COLS; gx++) {
+        const mx = COLS - 1 - gx;
+        if (mx > gx) grid[gy][mx] = grid[gy][gx];
+      }
     }
-    return arr;
+    return grid;
+  }
+
+  function buildMazeForStage(stage) {
+    if (stage <= 1) return buildMazeStage1();
+    if (stage === 2) return buildMazeStage2();
+    return buildMazeStage3(); // stage 3, and the base for endless mode (4+)
   }
 
   function isOpen(grid, col, row) {
@@ -56,8 +96,43 @@ function createMazeLevel(api) {
 
   const DIRS = [{ dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 }];
 
-  let grid, dots, powerPellets, player, ghosts, mouthPhase, frightTimer, ghostChain;
-  let hasStarted, totalCollectibles;
+  // Ghost roster: the first two are the original stage-1 ghosts; the third
+  // and fourth are added in as stages 2 and 3 escalate the chase. All four
+  // spawn cells are guaranteed-open maze-cell centers (odd/odd grid coords)
+  // under every generator above (corner, center, and mirrored variants all
+  // produce a full spanning tree, so every cell center ends up carved).
+  const GHOST_ROSTER = [
+    { spawn: [17, 1], color: '#ff4fa3', baseSpeed: 3.6 },
+    { spawn: [9, 7], color: '#4fe3d0', baseSpeed: 3.7 },
+    { spawn: [13, 7], color: '#ffb84f', baseSpeed: 3.9 },
+    { spawn: [5, 7], color: '#b84fff', baseSpeed: 4.0 },
+  ];
+
+  // Stage-baseline speed multiplier: stages 1-3 step the ghosts up as more of
+  // them join the chase; stage 4+ ("endless") keeps stage 3's full roster but
+  // keeps scaling smoothly on top, capped so it never becomes unbeatable.
+  function stageSpeedMult(stage) {
+    if (stage <= 1) return 1;
+    if (stage === 2) return 1.12;
+    if (stage === 3) return 1.25;
+    const endlessScale = Math.min(1 + (stage - 3) * 0.12, 2.4);
+    return Math.min(1.25 * endlessScale, 3.0);
+  }
+
+  function ghostCountForStage(stage) {
+    if (stage <= 1) return 2;
+    if (stage === 2) return 3;
+    return 4; // stage 3, and endless mode reuses stage 3's full roster
+  }
+
+  // How much of the within-stage "board is clearing out" ramp applies (see
+  // update() below) — kept as a baseline stages layer on top of, not replace.
+  function baseWanderChance(stage) {
+    if (stage <= 1) return 0.25;
+    if (stage === 2) return 0.20;
+    if (stage === 3) return 0.15;
+    return Math.max(0.06, 0.15 - (stage - 3) * 0.01);
+  }
 
   // Movement uses a cell + progress-fraction model: a mover sits at (col,row)
   // and, while `dir` is nonzero, `t` (0..1) tracks progress toward the next
@@ -101,16 +176,22 @@ function createMazeLevel(api) {
     }
   }
 
+  let grid, dots, powerPellets, player, ghosts, mouthPhase, frightTimer, ghostChain;
+  let currentStage, totalCollectibles, stageWanderBase;
+
   return {
-    init() {
-      if (!hasStarted) {
-        // First-ever init for this instance. A retry after losing a life
-        // re-calls init() on this SAME instance (see game.js), so the maze,
-        // dots and pellets built here are left untouched below on a respawn —
-        // getting caught by a ghost sends you back to start, but doesn't wipe
-        // out all the dots you already cleared or reroll a brand new maze.
-        hasStarted = true;
-        grid = buildMaze();
+    init(stage = 1) {
+      const isNewStage = stage !== currentStage;
+
+      if (isNewStage) {
+        // Moving to a new stage (first-ever init, or advancing after
+        // winLevel()): regenerate the maze, dots, pellets and ghost roster
+        // for this stage. Any leftover state from the previous stage must
+        // not contaminate the new one.
+        currentStage = stage;
+        stageWanderBase = baseWanderChance(stage);
+        grid = buildMazeForStage(stage);
+
         dots = new Set();
         for (let r = 0; r < ROWS; r++) {
           for (let c = 0; c < COLS; c++) {
@@ -131,11 +212,17 @@ function createMazeLevel(api) {
         });
         totalCollectibles = dots.size + powerPellets.size;
 
-        ghosts = [
-          Object.assign(makeMover(17, 1, 3.6), { color: '#ff4fa3', spawn: [17, 1], respawnDelay: 0, baseSpeed: 3.6 }),
-          Object.assign(makeMover(9, 7, 3.7), { color: '#4fe3d0', spawn: [9, 7], respawnDelay: 0, baseSpeed: 3.7 }),
-        ];
+        const mult = stageSpeedMult(stage);
+        const count = ghostCountForStage(stage);
+        ghosts = GHOST_ROSTER.slice(0, count).map((def) => Object.assign(
+          makeMover(def.spawn[0], def.spawn[1], def.baseSpeed * mult),
+          { color: def.color, spawn: def.spawn, respawnDelay: 0, baseSpeed: def.baseSpeed * mult }
+        ));
       } else {
+        // Same-stage retry after losing a life re-calls init() with the same
+        // stage number (see game.js) — the maze, dots and pellets built above
+        // are left untouched here, so getting caught by a ghost sends you
+        // back to start without wiping out dots you already cleared.
         ghosts.forEach((g) => {
           g.col = g.spawn[0]; g.row = g.spawn[1];
           g.dir = { dx: 0, dy: 0 }; g.t = 0;
@@ -182,11 +269,14 @@ function createMazeLevel(api) {
 
       // Difficulty ramps up as the board clears: ghosts get faster and more
       // relentless about chasing (less random wandering) the fewer dots are
-      // left, so the finish of a maze has real tension instead of staying flat.
+      // left, so the finish of a maze has real tension instead of staying
+      // flat. This within-stage ramp layers on top of (not instead of) the
+      // stage baseline set in init() — g.baseSpeed already carries the
+      // per-stage/endless scale.
       const remaining = dots.size + powerPellets.size;
       const clearProgress = totalCollectibles > 0 ? 1 - remaining / totalCollectibles : 0;
       const aggroSpeedMult = 1 + clearProgress * 0.35;
-      const wanderChance = Math.max(0.08, 0.25 - clearProgress * 0.17);
+      const wanderChance = Math.max(0.05, stageWanderBase - clearProgress * 0.17);
 
       ghosts.forEach((g) => {
         if (g.respawnDelay > 0) {

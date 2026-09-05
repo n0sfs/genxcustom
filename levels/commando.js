@@ -8,7 +8,7 @@ function createCommandoLevel(api) {
 
   function normalize(x, y) {
     const len = Math.hypot(x, y) || 1;
-    return { x: x / len, y: y / len };
+    return { dx: x / len, dy: y / len };
   }
   function rectsOverlap(a, b) {
     return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
@@ -26,22 +26,91 @@ function createCommandoLevel(api) {
   const RAPID_TIME = 6;
   const RAPID_DROP_CHANCE = 0.35;
 
-  const gruntSpawns = [
-    { x: 380, range: [320, 480] },
-    { x: 760, range: [700, 900] },
-    { x: 1180, range: [1100, 1320] },
-    { x: 1720, range: [1650, 1850] },
-    { x: 2140, range: [2060, 2280] },
+  // Stage 1: the original default layout/pace.
+  const STAGE_CONFIGS = [
+    {
+      gruntSpawns: [
+        { x: 380, range: [320, 480] },
+        { x: 760, range: [700, 900] },
+        { x: 1180, range: [1100, 1320] },
+        { x: 1720, range: [1650, 1850] },
+        { x: 2140, range: [2060, 2280] },
+      ],
+      turretSpawns: [{ x: 540, y: GROUND_Y - 40 }, { x: 2000, y: GROUND_Y - 40 }],
+      chopperSpawns: [
+        { range: [200, 900], y: 80 },
+        { range: [1300, 2100], y: 110 },
+      ],
+      fireRateMul: 1,
+      speedMul: 1,
+    },
+    // Stage 2: more grunts, an extra turret and chopper, repositioned, faster fire.
+    {
+      gruntSpawns: [
+        { x: 300, range: [240, 420] },
+        { x: 620, range: [560, 760] },
+        { x: 940, range: [860, 1080] },
+        { x: 1300, range: [1220, 1440] },
+        { x: 1650, range: [1580, 1780] },
+        { x: 1980, range: [1900, 2120] },
+        { x: 2280, range: [2200, 2400] },
+      ],
+      turretSpawns: [{ x: 460, y: GROUND_Y - 40 }, { x: 1300, y: GROUND_Y - 40 }, { x: 2100, y: GROUND_Y - 40 }],
+      chopperSpawns: [
+        { range: [200, 700], y: 80 },
+        { range: [900, 1500], y: 100 },
+        { range: [1700, 2300], y: 120 },
+      ],
+      fireRateMul: 1.25,
+      speedMul: 1.15,
+    },
+    // Stage 3: dense/fast, plus an extra wave guarding the extraction point.
+    {
+      gruntSpawns: [
+        { x: 280, range: [220, 400] },
+        { x: 560, range: [500, 700] },
+        { x: 840, range: [780, 980] },
+        { x: 1140, range: [1080, 1300] },
+        { x: 1440, range: [1380, 1600] },
+        { x: 1740, range: [1680, 1900] },
+        { x: 2020, range: [1960, 2160] },
+        { x: 2350, range: [2300, 2480] },
+        { x: 2470, range: [2400, 2550] },
+      ],
+      turretSpawns: [
+        { x: 420, y: GROUND_Y - 40 },
+        { x: 1120, y: GROUND_Y - 40 },
+        { x: 1860, y: GROUND_Y - 40 },
+        { x: 2440, y: GROUND_Y - 40 },
+      ],
+      chopperSpawns: [
+        { range: [200, 650], y: 80 },
+        { range: [750, 1250], y: 100 },
+        { range: [1350, 1900], y: 90 },
+        { range: [2050, 2500], y: 120 },
+      ],
+      fireRateMul: 1.5,
+      speedMul: 1.3,
+    },
   ];
-  const turretSpawns = [{ x: 540, y: GROUND_Y - 40 }, { x: 2000, y: GROUND_Y - 40 }];
-  const chopperSpawns = [
-    { range: [200, 900], y: 80 },
-    { range: [1300, 2100], y: 110 },
-  ];
+
+  function getStageConfig(stage) {
+    const idx = Math.min(Math.max(stage, 1), 3) - 1;
+    const base = STAGE_CONFIGS[idx];
+    if (stage <= 3) return { ...base, fireRateMul: base.fireRateMul, speedMul: base.speedMul };
+    // Endless mode: stage 3's layout is the base, scaled smoothly harder each stage.
+    const scale = Math.min(1 + (stage - 3) * 0.12, 1.8);
+    return {
+      ...base,
+      fireRateMul: Math.min(base.fireRateMul * scale, 3),
+      speedMul: Math.min(base.speedMul * scale, 2),
+    };
+  }
 
   const extraction = { x: WORLD_W - 70, y: GROUND_Y - 90, w: 50, h: 90 };
 
   let player, bullets, enemyBullets, grunts, turrets, choppers, crates, powerups, particles, popups, camX, extractionOpen;
+  let fireRateMul, speedMul;
 
   function burst(x, y, color, n) {
     for (let i = 0; i < n; i++) {
@@ -56,7 +125,11 @@ function createCommandoLevel(api) {
   }
 
   return {
-    init() {
+    init(stage = 1) {
+      const cfg = getStageConfig(stage);
+      fireRateMul = cfg.fireRateMul;
+      speedMul = cfg.speedMul;
+
       player = {
         x: 40, y: GROUND_Y - 40, w: 20, h: 40,
         facing: { dx: 1, dy: 0 }, shotCooldown: 0, invuln: 1, hitFlash: 0, rapidTimer: 0,
@@ -71,12 +144,12 @@ function createCommandoLevel(api) {
       extractionOpen = false;
       crates = CRATE_DEFS.map((c) => ({ ...c, alive: true }));
 
-      grunts = gruntSpawns.map((s) => ({
-        x: s.x, y: GROUND_Y - 34, w: 20, h: 34, range: s.range, dir: 1, alive: true, fireTimer: 1 + Math.random(),
+      grunts = cfg.gruntSpawns.map((s) => ({
+        x: s.x, y: GROUND_Y - 34, w: 20, h: 34, range: s.range, dir: 1, alive: true, fireTimer: (1 + Math.random()) / fireRateMul,
       }));
-      turrets = turretSpawns.map((s) => ({ x: s.x, y: s.y, w: 26, h: 40, alive: true, fireTimer: 1.5 + Math.random() }));
-      choppers = chopperSpawns.map((s) => ({
-        x: s.range[0], y: s.y, w: 58, h: 22, range: s.range, dir: 1, alive: true, fireTimer: 1.2 + Math.random(),
+      turrets = cfg.turretSpawns.map((s) => ({ x: s.x, y: s.y, w: 26, h: 40, alive: true, fireTimer: (1.5 + Math.random()) / fireRateMul }));
+      choppers = cfg.chopperSpawns.map((s) => ({
+        x: s.range[0], y: s.y, w: 58, h: 22, range: s.range, dir: 1, alive: true, fireTimer: (1.2 + Math.random()) / fireRateMul,
       }));
     },
 
@@ -112,11 +185,11 @@ function createCommandoLevel(api) {
       bullets = bullets.filter((b) => b.x > camX - 20 && b.x < camX + W + 20 && b.y > -20 && b.y < H + 20);
 
       grunts.filter((e) => e.alive).forEach((e) => {
-        e.x += e.dir * 40 * dt;
+        e.x += e.dir * 40 * speedMul * dt;
         if (e.x < e.range[0] || e.x + e.w > e.range[1]) e.dir *= -1;
         e.fireTimer -= dt;
         if (e.fireTimer <= 0 && Math.abs((e.x + e.w / 2) - (player.x + player.w / 2)) < 420) {
-          e.fireTimer = (1.4 + Math.random() * 0.6) * (1 - 0.3 * progress);
+          e.fireTimer = ((1.4 + Math.random() * 0.6) * (1 - 0.3 * progress)) / fireRateMul;
           const dir = player.x < e.x ? -1 : 1;
           enemyBullets.push({ x: e.x + e.w / 2, y: e.y + e.h / 2, vx: dir * 260, vy: 0, w: 6, h: 3 });
         }
@@ -125,18 +198,18 @@ function createCommandoLevel(api) {
       turrets.filter((e) => e.alive).forEach((e) => {
         e.fireTimer -= dt;
         if (e.fireTimer <= 0 && Math.abs((e.x + e.w / 2) - (player.x + player.w / 2)) < 520) {
-          e.fireTimer = (1.7 + Math.random() * 0.6) * (1 - 0.3 * progress);
+          e.fireTimer = ((1.7 + Math.random() * 0.6) * (1 - 0.3 * progress)) / fireRateMul;
           const dir = player.x < e.x ? -1 : 1;
           enemyBullets.push({ x: e.x + e.w / 2, y: e.y + 10, vx: dir * 240, vy: 0, w: 6, h: 3 });
         }
       });
 
       choppers.filter((e) => e.alive).forEach((e) => {
-        e.x += e.dir * 32 * dt;
+        e.x += e.dir * 32 * speedMul * dt;
         if (e.x < e.range[0] || e.x + e.w > e.range[1]) e.dir *= -1;
         e.fireTimer -= dt;
         if (e.fireTimer <= 0 && Math.abs((e.x + e.w / 2) - (player.x + player.w / 2)) < 260) {
-          e.fireTimer = (1.1 + Math.random() * 0.6) * (1 - 0.3 * progress);
+          e.fireTimer = ((1.1 + Math.random() * 0.6) * (1 - 0.3 * progress)) / fireRateMul;
           enemyBullets.push({ x: e.x + e.w / 2, y: e.y + e.h, vx: 0, vy: 220, w: 4, h: 8 });
         }
       });

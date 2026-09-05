@@ -9,28 +9,47 @@ function createZeldaLevel(api) {
     return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   }
 
-  // Outer border + room-dividing walls with doorway gaps, arranged as a
-  // 2x2 loop of rooms so there is more than one route to the goal room.
-  const walls = [
-    { x: 0, y: 0, w: WORLD_W, h: WALL_T },
-    { x: 0, y: WORLD_H - WALL_T, w: WORLD_W, h: WALL_T },
-    { x: 0, y: 0, w: WALL_T, h: WORLD_H },
-    { x: WORLD_W - WALL_T, y: 0, w: WALL_T, h: WORLD_H },
-
-    { x: ROOM_W - WALL_T / 2, y: 0, w: WALL_T, h: 200 },
-    { x: ROOM_W - WALL_T / 2, y: 280, w: WALL_T, h: WORLD_H - 280 - 200 - 80 },
-    { x: ROOM_W - WALL_T / 2, y: WORLD_H - 200, w: WALL_T, h: 200 },
-
-    { x: 0, y: ROOM_H - WALL_T / 2, w: 280, h: WALL_T },
-    { x: 360, y: ROOM_H - WALL_T / 2, w: WORLD_W - 360 - 360, h: WALL_T },
-    { x: WORLD_W - 280, y: ROOM_H - WALL_T / 2, w: 280, h: WALL_T },
-
-    { x: 150, y: 130, w: 32, h: 32 },
-    { x: ROOM_W + 420, y: 110, w: 32, h: 100 },
-    { x: 110, y: ROOM_H + 300, w: 100, h: 32 },
-    { x: ROOM_W + 220, y: ROOM_H + 220, w: 32, h: 32 },
-    { x: ROOM_W + 460, y: ROOM_H + 320, w: 32, h: 32 },
-  ];
+  // --- Per-stage dungeon layouts ------------------------------------------
+  // Each stage is a 2x2 room grid (same outer footprint) but with different
+  // doorway gaps in the two dividing walls plus different obstacle clutter,
+  // so the route to the boss room genuinely changes shape each stage.
+  function outerBorder() {
+    return [
+      { x: 0, y: 0, w: WORLD_W, h: WALL_T },
+      { x: 0, y: WORLD_H - WALL_T, w: WORLD_W, h: WALL_T },
+      { x: 0, y: 0, w: WALL_T, h: WORLD_H },
+      { x: WORLD_W - WALL_T, y: 0, w: WALL_T, h: WORLD_H },
+    ];
+  }
+  // vGaps/hGaps: lists of [start, end] ranges (in world space) where the
+  // divider wall should be open (a doorway) instead of solid.
+  function vSegments(gaps) {
+    const vx = ROOM_W - WALL_T / 2;
+    const sorted = [...gaps].sort((a, b) => a[0] - b[0]);
+    const rects = [];
+    let cur = 0;
+    sorted.forEach(([gs, ge]) => {
+      if (gs > cur) rects.push({ x: vx, y: cur, w: WALL_T, h: gs - cur });
+      cur = ge;
+    });
+    if (cur < WORLD_H) rects.push({ x: vx, y: cur, w: WALL_T, h: WORLD_H - cur });
+    return rects;
+  }
+  function hSegments(gaps) {
+    const hy = ROOM_H - WALL_T / 2;
+    const sorted = [...gaps].sort((a, b) => a[0] - b[0]);
+    const rects = [];
+    let cur = 0;
+    sorted.forEach(([gs, ge]) => {
+      if (gs > cur) rects.push({ x: cur, y: hy, w: gs - cur, h: WALL_T });
+      cur = ge;
+    });
+    if (cur < WORLD_W) rects.push({ x: cur, y: hy, w: WORLD_W - cur, h: WALL_T });
+    return rects;
+  }
+  function buildWalls(vGaps, hGaps, obstacles) {
+    return [...outerBorder(), ...vSegments(vGaps), ...hSegments(hGaps), ...obstacles];
+  }
 
   const ATTACK_DURATION = 0.22;
   const ATTACK_COOLDOWN = 0.35;
@@ -38,10 +57,149 @@ function createZeldaLevel(api) {
 
   const HEART_DROP_CHANCE = 0.3;
   const POWER_TIME = 5;
-  const BOSS_HP = 4;
   const BOSS_SPAWN = { x: ROOM_W + ROOM_W / 2 - 24, y: ROOM_H + ROOM_H / 2 - 90 };
 
+  // Stage 1: the original layout — a 2x2 loop of rooms with two doorways per
+  // divider, so there is always more than one route to the goal room.
+  const STAGE_1 = {
+    walls: buildWalls(
+      [[200, 280], [WORLD_H - 280, WORLD_H - 200]],
+      [[280, 360], [WORLD_W - 360, WORLD_W - 280]],
+      [
+        { x: 150, y: 130, w: 32, h: 32 },
+        { x: ROOM_W + 420, y: 110, w: 32, h: 100 },
+        { x: 110, y: ROOM_H + 300, w: 100, h: 32 },
+        { x: ROOM_W + 220, y: ROOM_H + 220, w: 32, h: 32 },
+        { x: ROOM_W + 460, y: ROOM_H + 320, w: 32, h: 32 },
+      ]
+    ),
+    enemies: [
+      { type: 'chaser', x: ROOM_W + 160, y: 140, dx: 1, dy: 0 },
+      { type: 'shooter', x: ROOM_W + 480, y: 320, fireTimer: 1.2 },
+      { type: 'shooter', x: 150, y: ROOM_H + 160, fireTimer: 1.8 },
+      { type: 'chaser', x: 420, y: ROOM_H + 340, dx: 0, dy: 1 },
+      { type: 'chaser', x: ROOM_W + 200, y: ROOM_H + 150, dx: -1, dy: 0 },
+      { type: 'shooter', x: ROOM_W + 510, y: 620, fireTimer: 0.8 },
+    ],
+    bossHp: 4,
+    bossChargeNormal: 250, bossChargeEnraged: 290,
+    bossSpreadNormal: [-0.35, 0, 0.35],
+    bossSpreadEnraged: [-0.5, -0.25, 0, 0.25, 0.5],
+    bossExtraBurst: false, bossBurstCount: 0, bossShotSpeed: 170,
+    enemySpeedMul: 1, enemyFireMul: 1,
+  };
+
+  // Stage 2: the loop collapses into a single central crossroads chokepoint
+  // (one doorway per divider, both centered so they meet in the middle),
+  // with more clutter and a tougher, faster-shooting boss that can also fire
+  // a full radial burst.
+  const STAGE_2 = {
+    walls: buildWalls(
+      [[WORLD_H / 2 - 55, WORLD_H / 2 + 55]],
+      [[WORLD_W / 2 - 55, WORLD_W / 2 + 55]],
+      [
+        { x: 200, y: 150, w: 40, h: 40 },
+        { x: 420, y: ROOM_H - 160, w: 100, h: 28 },
+        { x: ROOM_W + 140, y: 140, w: 28, h: 120 },
+        { x: ROOM_W + 460, y: 300, w: 40, h: 40 },
+        { x: 150, y: ROOM_H + 280, w: 120, h: 28 },
+        { x: ROOM_W + 480, y: ROOM_H + 140, w: 32, h: 32 },
+        { x: ROOM_W + 220, y: ROOM_H + 380, w: 32, h: 32 },
+      ]
+    ),
+    enemies: [
+      { type: 'chaser', x: 250, y: 300, dx: 1, dy: 0 },
+      { type: 'shooter', x: 480, y: 200, fireTimer: 1.0 },
+      { type: 'chaser', x: ROOM_W + 500, y: 250, dx: -1, dy: 0 },
+      { type: 'shooter', x: ROOM_W + 300, y: 350, fireTimer: 1.4 },
+      { type: 'shooter', x: 250, y: ROOM_H + 200, fireTimer: 1.6 },
+      { type: 'chaser', x: 450, y: ROOM_H + 350, dx: 0, dy: -1 },
+      { type: 'chaser', x: ROOM_W + 400, y: ROOM_H + 180, dx: 0, dy: 1 },
+      { type: 'shooter', x: ROOM_W + 550, y: ROOM_H + 400, fireTimer: 0.9 },
+    ],
+    bossHp: 6,
+    bossChargeNormal: 280, bossChargeEnraged: 330,
+    bossSpreadNormal: [-0.4, -0.13, 0.13, 0.4],
+    bossSpreadEnraged: [-0.55, -0.3, -0.1, 0.1, 0.3, 0.55],
+    bossExtraBurst: true, bossBurstCount: 8, bossShotSpeed: 185,
+    enemySpeedMul: 1.25, enemyFireMul: 0.85,
+  };
+
+  // Stage 3: an asymmetric layout — a single off-center horizontal doorway
+  // plus two narrow vertical doorways pinned near the top/bottom edges,
+  // forcing a longer, more roundabout route; more enemies and the toughest
+  // boss variant yet.
+  const STAGE_3 = {
+    walls: buildWalls(
+      [
+        [WORLD_H * 0.125, WORLD_H * 0.125 + 60],
+        [WORLD_H * 0.875 - 60, WORLD_H * 0.875],
+      ],
+      [[ROOM_W * 0.55, ROOM_W * 0.55 + 70]],
+      [
+        { x: 220, y: 250, w: 36, h: 36 },
+        { x: 420, y: 90, w: 36, h: 90 },
+        { x: ROOM_W + 160, y: 260, w: 36, h: 36 },
+        { x: ROOM_W + 420, y: 130, w: 100, h: 28 },
+        { x: ROOM_W + 480, y: 340, w: 36, h: 36 },
+        { x: 160, y: ROOM_H + 200, w: 100, h: 28 },
+        { x: 420, y: ROOM_H + 320, w: 36, h: 36 },
+        { x: ROOM_W + 300, y: ROOM_H + 260, w: 36, h: 36 },
+        { x: ROOM_W + 480, y: ROOM_H + 380, w: 36, h: 36 },
+      ]
+    ),
+    enemies: [
+      { type: 'chaser', x: 200, y: 200, dx: 1, dy: 0 },
+      { type: 'shooter', x: 480, y: 320, fireTimer: 1.1 },
+      { type: 'chaser', x: 420, y: ROOM_H - 100, dx: 0, dy: -1 },
+      { type: 'chaser', x: ROOM_W + 180, y: 200, dx: -1, dy: 0 },
+      { type: 'shooter', x: ROOM_W + 480, y: 250, fireTimer: 1.3 },
+      { type: 'shooter', x: ROOM_W + 350, y: 400, fireTimer: 1.7 },
+      { type: 'shooter', x: 200, y: ROOM_H + 180, fireTimer: 1.5 },
+      { type: 'chaser', x: 450, y: ROOM_H + 300, dx: 0, dy: 1 },
+      { type: 'chaser', x: ROOM_W + 380, y: ROOM_H + 160, dx: 0, dy: 1 },
+      { type: 'shooter', x: ROOM_W + 560, y: ROOM_H + 380, fireTimer: 0.9 },
+    ],
+    bossHp: 8,
+    bossChargeNormal: 310, bossChargeEnraged: 360,
+    bossSpreadNormal: [-0.5, -0.25, 0, 0.25, 0.5],
+    bossSpreadEnraged: [-0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6],
+    bossExtraBurst: true, bossBurstCount: 12, bossShotSpeed: 200,
+    enemySpeedMul: 1.5, enemyFireMul: 0.7,
+  };
+
+  function getStageConfig(stage) {
+    if (stage <= 1) return STAGE_1;
+    if (stage === 2) return STAGE_2;
+    if (stage === 3) return STAGE_3;
+
+    // Endless mode: reuse stage 3's dungeon and enemy layout untouched, and
+    // smoothly scale the numbers instead. Speed-ish stats get a gentler,
+    // separately-capped multiplier than counts/aggression so the arena never
+    // turns into an unreadable bullet-storm, and boss HP grows slower still
+    // so fights don't become endless damage-sponges.
+    const scale = Math.min(2.5, 1 + (stage - 3) * 0.12);
+    const speedScale = Math.min(1.6, scale);
+    const hpScale = Math.min(1.8, 1 + (stage - 3) * 0.08);
+    return {
+      walls: STAGE_3.walls,
+      enemies: STAGE_3.enemies,
+      bossHp: Math.min(18, Math.round(STAGE_3.bossHp * hpScale)),
+      bossChargeNormal: Math.min(420, STAGE_3.bossChargeNormal * speedScale),
+      bossChargeEnraged: Math.min(480, STAGE_3.bossChargeEnraged * speedScale),
+      bossSpreadNormal: STAGE_3.bossSpreadNormal,
+      bossSpreadEnraged: STAGE_3.bossSpreadEnraged,
+      bossExtraBurst: true,
+      bossBurstCount: Math.min(20, Math.round(STAGE_3.bossBurstCount * Math.min(1.8, scale))),
+      bossShotSpeed: Math.min(320, STAGE_3.bossShotSpeed * speedScale),
+      enemySpeedMul: Math.min(2.6, STAGE_3.enemySpeedMul * scale),
+      enemyFireMul: Math.max(0.35, STAGE_3.enemyFireMul / Math.min(1.8, scale)),
+    };
+  }
+
   let player, enemies, projectiles, camX, camY, goal, goalActive, particles, hearts, boss, bossSpawned, torchTime, killStreak, tookDamage;
+  let walls, BOSS_HP, enemySpeedMul, enemyFireMul, bossChargeNormal, bossChargeEnraged,
+    bossSpreadNormal, bossSpreadEnraged, bossExtraBurst, bossBurstCount, bossShotSpeed;
 
   // Fixed decorative wall torches for dungeon atmosphere (purely cosmetic).
   const torches = [
@@ -55,7 +213,7 @@ function createZeldaLevel(api) {
       x: BOSS_SPAWN.x, y: BOSS_SPAWN.y, w: 48, h: 48,
       hp: BOSS_HP, alive: true, invuln: 0, hitFlash: 0,
       state: 'idle', stateTimer: 1.2, nextAction: 'charge', dir: { dx: 0, dy: 1 },
-      telegraph: 0,
+      telegraph: 0, shootCount: 0,
     };
   }
 
@@ -86,13 +244,29 @@ function createZeldaLevel(api) {
         } else {
           const dx = player.x - boss.x, dy = player.y - boss.y;
           const baseAng = Math.atan2(dy, dx);
-          const spread = enraged ? [-0.5, -0.25, 0, 0.25, 0.5] : [-0.35, 0, 0.35];
-          spread.forEach((a) => {
-            projectiles.push({
-              x: boss.x + boss.w / 2, y: boss.y + boss.h / 2,
-              vx: Math.cos(baseAng + a) * 170, vy: Math.sin(baseAng + a) * 170, w: 7, h: 7,
+          // Stage 2+ bosses alternate a directional spread with a full
+          // radial burst every other shot cycle, so the fight has a second,
+          // genuinely different attack pattern instead of just more bullets.
+          const useBurst = bossExtraBurst && (boss.shootCount % 2 === 1);
+          boss.shootCount++;
+          if (useBurst) {
+            const count = enraged ? bossBurstCount + 4 : bossBurstCount;
+            for (let i = 0; i < count; i++) {
+              const a = (Math.PI * 2 * i) / count;
+              projectiles.push({
+                x: boss.x + boss.w / 2, y: boss.y + boss.h / 2,
+                vx: Math.cos(a) * bossShotSpeed, vy: Math.sin(a) * bossShotSpeed, w: 7, h: 7,
+              });
+            }
+          } else {
+            const spread = enraged ? bossSpreadEnraged : bossSpreadNormal;
+            spread.forEach((a) => {
+              projectiles.push({
+                x: boss.x + boss.w / 2, y: boss.y + boss.h / 2,
+                vx: Math.cos(baseAng + a) * bossShotSpeed, vy: Math.sin(baseAng + a) * bossShotSpeed, w: 7, h: 7,
+              });
             });
-          });
+          }
           sfx('shoot');
           boss.state = 'idle';
           boss.stateTimer = enraged ? 0.9 : 1.3;
@@ -100,7 +274,7 @@ function createZeldaLevel(api) {
         }
       }
     } else if (boss.state === 'charge') {
-      const chargeSpeed = enraged ? 290 : 250;
+      const chargeSpeed = enraged ? bossChargeEnraged : bossChargeNormal;
       moveAndCollide(boss, boss.dir.dx * chargeSpeed, boss.dir.dy * chargeSpeed, dt);
       if (boss.stateTimer <= 0) {
         boss.state = 'idle';
@@ -129,25 +303,35 @@ function createZeldaLevel(api) {
     e.y = Math.max(0, Math.min(WORLD_H - e.h, e.y));
   }
 
-  function spawnEnemies() {
-    enemies = [
-      { x: ROOM_W + 160, y: 140, w: 26, h: 26, type: 'chaser', alive: true, wanderDir: { dx: 1, dy: 0 }, wanderTimer: 1 },
-      { x: ROOM_W + 480, y: 320, w: 26, h: 26, type: 'shooter', alive: true, fireTimer: 1.2 },
-      { x: 150, y: ROOM_H + 160, w: 26, h: 26, type: 'shooter', alive: true, fireTimer: 1.8 },
-      { x: 420, y: ROOM_H + 340, w: 26, h: 26, type: 'chaser', alive: true, wanderDir: { dx: 0, dy: 1 }, wanderTimer: 1 },
-      { x: ROOM_W + 200, y: ROOM_H + 150, w: 26, h: 26, type: 'chaser', alive: true, wanderDir: { dx: -1, dy: 0 }, wanderTimer: 1 },
-      { x: ROOM_W + 510, y: 620, w: 26, h: 26, type: 'shooter', alive: true, fireTimer: 0.8 },
-    ];
+  function spawnEnemies(cfg) {
+    enemies = cfg.enemies.map((d) => (
+      d.type === 'chaser'
+        ? { x: d.x, y: d.y, w: 26, h: 26, type: 'chaser', alive: true, wanderDir: { dx: d.dx, dy: d.dy }, wanderTimer: 1 }
+        : { x: d.x, y: d.y, w: 26, h: 26, type: 'shooter', alive: true, fireTimer: d.fireTimer }
+    ));
   }
 
   return {
-    init() {
+    init(stage = 1) {
+      const cfg = getStageConfig(stage);
+      walls = cfg.walls;
+      BOSS_HP = cfg.bossHp;
+      bossChargeNormal = cfg.bossChargeNormal;
+      bossChargeEnraged = cfg.bossChargeEnraged;
+      bossSpreadNormal = cfg.bossSpreadNormal;
+      bossSpreadEnraged = cfg.bossSpreadEnraged;
+      bossExtraBurst = cfg.bossExtraBurst;
+      bossBurstCount = cfg.bossBurstCount;
+      bossShotSpeed = cfg.bossShotSpeed;
+      enemySpeedMul = cfg.enemySpeedMul;
+      enemyFireMul = cfg.enemyFireMul;
+
       player = {
         x: 110, y: ROOM_H / 2 - 13, w: 24, h: 26,
         facing: { dx: 0, dy: 1 }, attackTimer: 0, attackCooldown: 0, hitSet: null,
         invuln: 1, hitFlash: 0, powerTimer: 0,
       };
-      spawnEnemies();
+      spawnEnemies(cfg);
       projectiles = [];
       particles = [];
       hearts = [];
@@ -205,8 +389,8 @@ function createZeldaLevel(api) {
           const dist = Math.hypot(dx, dy);
           let vx = 0, vy = 0;
           if (dist > 0.01 && dist < 240) {
-            vx = (dx / dist) * 90;
-            vy = (dy / dist) * 90;
+            vx = (dx / dist) * 90 * enemySpeedMul;
+            vy = (dy / dist) * 90 * enemySpeedMul;
           } else if (dist <= 0.01) {
             vx = 0; vy = 0;
           } else {
@@ -216,14 +400,14 @@ function createZeldaLevel(api) {
               const opts = [{ dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 }];
               e.wanderDir = opts[Math.floor(Math.random() * opts.length)];
             }
-            vx = e.wanderDir.dx * 45;
-            vy = e.wanderDir.dy * 45;
+            vx = e.wanderDir.dx * 45 * enemySpeedMul;
+            vy = e.wanderDir.dy * 45 * enemySpeedMul;
           }
           moveAndCollide(e, vx, vy, dt);
         } else {
           e.fireTimer -= dt;
           if (e.fireTimer <= 0 && Math.hypot(player.x - e.x, player.y - e.y) < 420) {
-            e.fireTimer = 2.2;
+            e.fireTimer = 2.2 * enemyFireMul;
             const dx = player.x - e.x, dy = player.y - e.y;
             const len = Math.hypot(dx, dy) || 1;
             projectiles.push({ x: e.x + e.w / 2, y: e.y + e.h / 2, vx: (dx / len) * 150, vy: (dy / len) * 150, w: 6, h: 6 });

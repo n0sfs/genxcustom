@@ -3,14 +3,47 @@ function createRacingLevel(api) {
 
   const ROAD_X = 70, ROAD_W = W - ROAD_X * 2;
   const PLAYER_W = 34, PLAYER_H = 52;
-  const DISTANCE_TARGET = 1600;
   const BOOST_TIME = 2.5;
   const MOVE_SPEED = 260;
   const NEAR_MISS_GAP = 14;
   const CAR_COLORS = ['#ff4fa3', '#ffd24f', '#8f8fff', '#ff9a4f'];
 
+  // Three hand-built stages: each is a real jump in traffic density/speed, not a
+  // tweak. Stage 3 also swaps the road theme (night + rain) to sell "somewhere
+  // new". Stage 4+ ("endless mode") scales stage 3's setup smoothly with `stage`.
+  const STAGE_CONFIGS = {
+    1: { baseSpeed: 220, firstSpawnDelay: 0.8, spawnMax: 1.05, spawnMin: 0.45, spawnDistDivisor: 2600, distanceTarget: 1600, reachMultiplier: 1.15, theme: 'day' },
+    2: { baseSpeed: 300, firstSpawnDelay: 0.55, spawnMax: 0.75, spawnMin: 0.32, spawnDistDivisor: 2200, distanceTarget: 2000, reachMultiplier: 1.05, theme: 'dusk' },
+    3: { baseSpeed: 360, firstSpawnDelay: 0.4, spawnMax: 0.55, spawnMin: 0.24, spawnDistDivisor: 1800, distanceTarget: 2400, reachMultiplier: 0.98, theme: 'night' },
+  };
+
+  const THEMES = {
+    day: { sky: ['#1e2a1e', '#141c14'], road: ['#3f3f4a', '#232328'], lane: 'rgba(255,255,255,0.5)', rain: false },
+    dusk: { sky: ['#3a2540', '#1a1020'], road: ['#4a3f4a', '#2a2028'], lane: 'rgba(255,220,160,0.55)', rain: false },
+    night: { sky: ['#0a0e1e', '#05060c'], road: ['#242a38', '#12151c'], lane: 'rgba(207,232,255,0.55)', rain: true },
+  };
+
+  function getStageConfig(stage) {
+    const s = Math.max(1, Math.floor(stage) || 1);
+    if (s <= 3) return STAGE_CONFIGS[s];
+    // Endless mode: scale stage 3's baseline harder each stage, capped so it
+    // never becomes literally impossible.
+    const scale = Math.min(2.6, 1 + (s - 3) * 0.12);
+    const s3 = STAGE_CONFIGS[3];
+    return {
+      baseSpeed: s3.baseSpeed * scale,
+      firstSpawnDelay: s3.firstSpawnDelay / scale,
+      spawnMax: s3.spawnMax / scale,
+      spawnMin: Math.max(0.15, s3.spawnMin / scale),
+      spawnDistDivisor: s3.spawnDistDivisor,
+      distanceTarget: s3.distanceTarget + (s - 3) * 250,
+      reachMultiplier: Math.max(0.85, s3.reachMultiplier - (s - 3) * 0.02),
+      theme: s3.theme,
+    };
+  }
+
   let player, obstacles, pickups, distance, speed, spawnTimer, fuelTimer, boostTimer, dashOffset, scoreTick, particles;
-  let lastSpawnX, lastSpawnInterval, nearMissStreak, popups;
+  let lastSpawnX, lastSpawnInterval, nearMissStreak, popups, cfg;
 
   function burst(x, y, color) {
     for (let i = 0; i < 6; i++) {
@@ -122,8 +155,9 @@ function createRacingLevel(api) {
     } else {
       // Clamp to a range the player can physically reach in the time since the
       // last obstacle spawned (using the un-boosted move speed as the safe floor),
-      // so back-to-back spawns never demand an impossible cross-road dash.
-      const reach = MOVE_SPEED * lastSpawnInterval * 1.15 + player.w;
+      // so back-to-back spawns never demand an impossible cross-road dash. Higher
+      // stages shrink the safety margin (reachMultiplier) for tighter gaps.
+      const reach = MOVE_SPEED * lastSpawnInterval * cfg.reachMultiplier + player.w;
       let lo = Math.max(minX, lastSpawnX - reach);
       let hi = Math.min(maxX, lastSpawnX + reach);
       if (lo > hi) { lo = minX; hi = maxX; }
@@ -134,16 +168,17 @@ function createRacingLevel(api) {
   }
 
   return {
-    init() {
+    init(stage = 1) {
+      cfg = getStageConfig(stage);
       player = { x: W / 2 - PLAYER_W / 2, y: H - 90, w: PLAYER_W, h: PLAYER_H, vx: 0 };
       obstacles = [];
       pickups = [];
       particles = [];
       distance = 0;
-      speed = 220;
-      spawnTimer = 0.8;
+      speed = cfg.baseSpeed;
+      spawnTimer = cfg.firstSpawnDelay;
       lastSpawnX = null;
-      lastSpawnInterval = 0.8;
+      lastSpawnInterval = cfg.firstSpawnDelay;
       nearMissStreak = 0;
       popups = [];
       fuelTimer = 5 + Math.random() * 4;
@@ -155,7 +190,8 @@ function createRacingLevel(api) {
     update(dt) {
       boostTimer = Math.max(0, boostTimer - dt);
       const boosting = boostTimer > 0;
-      speed = (220 + Math.min(260, distance * 0.12)) * (boosting ? 1.5 : 1);
+      const rampCap = 260 * (cfg.baseSpeed / 220);
+      speed = (cfg.baseSpeed + Math.min(rampCap, distance * 0.12)) * (boosting ? 1.5 : 1);
 
       const moveSpeed = boosting ? 340 : MOVE_SPEED;
       player.vx = 0;
@@ -174,7 +210,7 @@ function createRacingLevel(api) {
       spawnTimer -= dt;
       if (spawnTimer <= 0) {
         spawnObstacle();
-        spawnTimer = Math.max(0.45, 1.05 - distance / 2600);
+        spawnTimer = Math.max(cfg.spawnMin, cfg.spawnMax - distance / cfg.spawnDistDivisor);
         lastSpawnInterval = spawnTimer;
       }
 
@@ -255,13 +291,14 @@ function createRacingLevel(api) {
         addScore(2);
       }
 
-      if (distance >= DISTANCE_TARGET) {
+      if (distance >= cfg.distanceTarget) {
         winLevel(40);
       }
     },
 
     draw(ctx) {
-      FX.gradientRect(ctx, 0, 0, W, H, '#1e2a1e', '#141c14');
+      const theme = THEMES[cfg.theme] || THEMES.day;
+      FX.gradientRect(ctx, 0, 0, W, H, theme.sky[0], theme.sky[1]);
 
       // scrolling roadside scenery ticks (cheap parallax, reuses existing dash scroll)
       ctx.fillStyle = 'rgba(0,0,0,0.25)';
@@ -271,14 +308,14 @@ function createRacingLevel(api) {
         ctx.fillRect(W - 28, ty + 30, 10, 22);
       }
 
-      FX.gradientRect(ctx, ROAD_X, 0, ROAD_W, H, '#3f3f4a', '#232328');
+      FX.gradientRect(ctx, ROAD_X, 0, ROAD_W, H, theme.road[0], theme.road[1]);
 
       // faint tire-wear streaks for road texture
       ctx.fillStyle = 'rgba(0,0,0,0.12)';
       ctx.fillRect(ROAD_X + ROAD_W * 0.22, 0, 4, H);
       ctx.fillRect(ROAD_X + ROAD_W * 0.78, 0, 4, H);
 
-      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+      ctx.strokeStyle = theme.lane;
       ctx.lineWidth = 3;
       ctx.setLineDash([18, 18]);
       ctx.lineDashOffset = -dashOffset;
@@ -293,6 +330,19 @@ function createRacingLevel(api) {
 
       drawGuardrail(ctx, ROAD_X - 6, 6);
       drawGuardrail(ctx, ROAD_X + ROAD_W, 6);
+
+      if (theme.rain) {
+        ctx.strokeStyle = 'rgba(180,200,255,0.25)';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 18; i++) {
+          const rx = ROAD_X + ((i * 53 + dashOffset * 2) % (ROAD_W + 40)) - 20;
+          const ry = (i * 97 + dashOffset * 3) % (H + 40) - 20;
+          ctx.beginPath();
+          ctx.moveTo(rx, ry);
+          ctx.lineTo(rx - 6, ry + 16);
+          ctx.stroke();
+        }
+      }
 
       obstacles.forEach((o) => drawCar(ctx, o.x, o.y, o.w, o.h, o.color));
       pickups.forEach((p) => drawFuel(ctx, p.x, p.y, p.w, p.h));
@@ -336,7 +386,7 @@ function createRacingLevel(api) {
 
       ctx.fillStyle = '#e8ecff';
       ctx.font = '9px monospace';
-      ctx.fillText(`${Math.floor(distance)}m / ${DISTANCE_TARGET}m`, 8, 16);
+      ctx.fillText(`${Math.floor(distance)}m / ${cfg.distanceTarget}m`, 8, 16);
       if (boostTimer > 0) {
         ctx.fillStyle = '#4fe3d0';
         ctx.fillText('NITRO!', W - 60, 16);

@@ -19,7 +19,6 @@ const Game = (() => {
   const lcScore = document.getElementById('lc-score');
   const goScore = document.getElementById('go-score');
   const winScore = document.getElementById('win-score');
-  const titleLeaderboard = document.getElementById('title-leaderboard');
   const letterSlots = document.querySelectorAll('#screen-initials .letter-slot');
   const marqueeTrack = document.getElementById('marquee-track');
   const levelListEl = document.getElementById('level-list');
@@ -128,56 +127,53 @@ const Game = (() => {
     if (!muted) ensureAudio();
   }
 
-  // --- top-5 local leaderboard with classic arcade 3-letter initials ---
-  function getLeaderboard() {
+  // --- per-game top-5 local leaderboards with classic arcade 3-letter initials ---
+  function getAllLeaderboards() {
     try {
-      const list = JSON.parse(localStorage.getItem(LB_KEY));
-      return Array.isArray(list) ? list : [];
+      const all = JSON.parse(localStorage.getItem(LB_KEY));
+      return all && typeof all === 'object' && !Array.isArray(all) ? all : {};
     } catch (e) {
-      return [];
+      return {};
     }
   }
 
-  function getBestScore() {
-    const lb = getLeaderboard();
+  function getLeaderboard(gameName) {
+    const all = getAllLeaderboards();
+    return Array.isArray(all[gameName]) ? all[gameName] : [];
+  }
+
+  function getBestScore(gameName) {
+    const lb = getLeaderboard(gameName);
     return lb.length ? lb[0].score : 0;
   }
 
-  function qualifiesForLeaderboard(score) {
+  function qualifiesForLeaderboard(gameName, score) {
     if (score <= 0) return false;
-    const lb = getLeaderboard();
+    const lb = getLeaderboard(gameName);
     return lb.length < LB_MAX || score > lb[lb.length - 1].score;
   }
 
-  function saveLeaderboardEntry(initials, score) {
-    const lb = getLeaderboard();
+  function saveLeaderboardEntry(gameName, initials, score) {
+    const all = getAllLeaderboards();
+    const lb = Array.isArray(all[gameName]) ? all[gameName] : [];
     lb.push({ initials, score });
     lb.sort((a, b) => b.score - a.score);
     lb.length = Math.min(lb.length, LB_MAX);
-    localStorage.setItem(LB_KEY, JSON.stringify(lb));
-    return lb;
-  }
-
-  function renderTitleLeaderboard() {
-    if (!titleLeaderboard) return;
-    const lb = getLeaderboard();
-    if (!lb.length) {
-      titleLeaderboard.innerHTML = '<div class="lb-empty">NO SCORES YET — BE THE FIRST</div>';
-      return;
-    }
-    titleLeaderboard.innerHTML = lb
-      .map((e, i) => `<div class="lb-row"><span>${i + 1}. ${e.initials}</span><span>${e.score}</span></div>`)
-      .join('');
+    all[gameName] = lb;
+    localStorage.setItem(LB_KEY, JSON.stringify(all));
   }
 
   function renderMarquee() {
     if (!marqueeTrack) return;
-    const lb = getLeaderboard();
-    const topLine = lb.length ? `HIGH SCORE ${lb[0].score} BY ${lb[0].initials}` : 'NO HIGH SCORE YET — BE THE FIRST';
+    const all = getAllLeaderboards();
+    const champs = Object.entries(all).filter(([, lb]) => lb.length);
+    const spotlight = champs.length
+      ? (() => { const [name, lb] = champs[Math.floor(Math.random() * champs.length)]; return `${name} CHAMPION: ${lb[0].initials} WITH ${lb[0].score}`; })()
+      : 'NO HIGH SCORES YET — BE THE FIRST';
     const messages = [
       '★ GENX ARCADE ★',
-      '15 GAMES · ONE QUARTER',
-      topLine,
+      '15 GAMES · PICK ONE · CHASE THE HIGH SCORE',
+      spotlight,
       'INSERT COIN TO CONTINUE',
       'CLICK ANY CABINET TO PLAY',
     ];
@@ -214,32 +210,30 @@ const Game = (() => {
 
   function confirmInitials() {
     const initials = initialsLetters.join('');
-    saveLeaderboardEntry(initials, state.pendingResult.score);
-    renderTitleLeaderboard();
+    const def = state.levelDefs[state.currentGameIndex];
+    saveLeaderboardEntry(def.name, initials, state.pendingResult.score);
+    renderLevelList();
     renderMarquee();
-    const { kind, score } = state.pendingResult;
+    const { score } = state.pendingResult;
     sfx('levelclear');
-    if (kind === 'win') {
-      state.mode = 'win';
-      winScore.textContent = `FINAL SCORE ${score}  — NEW HIGH SCORE, ${initials}!`;
-      showScreen('win');
-    } else {
-      state.mode = 'gameover';
-      goScore.textContent = `SCORE ${score}  — NEW HIGH SCORE, ${initials}!`;
-      showScreen('gameover');
-    }
+    state.mode = 'gameover';
+    goScore.textContent = `SCORE ${score}  — NEW HIGH SCORE, ${initials}!`;
+    showScreen('gameover');
   }
 
+  const HAND_BUILT_STAGES = 3;
+
   const state = {
-    mode: 'title', // title | playing | levelcomplete | gameover | win | pause
-    levelIndex: 0,
-    selectedLevel: 0,
+    mode: 'title', // title | playing | levelcomplete | gameover | win | pause | initials
+    currentGameIndex: -1, // which registered game is active this session, -1 = none yet
+    selectedLevel: 0, // which card is highlighted on the title screen
+    stage: 1,
     lives: START_LIVES,
     score: 0,
     levelDefs: [], // { name, factory, tag }
     levelInstance: null,
     lastTime: 0,
-    prevMode: null,
+    pendingResult: null,
   };
 
   const keys = {};
@@ -252,10 +246,10 @@ const Game = (() => {
         confirmInitials();
       } else {
         sfx('select');
-        if (state.mode === 'title') startRun(state.selectedLevel);
-        else if (state.mode === 'levelcomplete') advanceLevel();
-        else if (state.mode === 'gameover') startRun(state.selectedLevel);
-        else if (state.mode === 'win') startRun(state.selectedLevel);
+        if (state.mode === 'title') startGame(state.selectedLevel);
+        else if (state.mode === 'levelcomplete') continueStage();
+        else if (state.mode === 'win') continueStage();
+        else if (state.mode === 'gameover') startGame(state.currentGameIndex);
       }
     }
     if (state.mode === 'title' && ['ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'].includes(e.key)) {
@@ -318,23 +312,26 @@ const Game = (() => {
     if (!levelListEl) return;
     const total = state.levelDefs.length;
     levelListEl.innerHTML = state.levelDefs
-      .map((def, i) => `
+      .map((def, i) => {
+        const best = getBestScore(def.name);
+        return `
         <div class="lvl-card" role="button" tabindex="0" data-idx="${i}" style="--accent:${accentFor(i, total)}" aria-label="Play ${def.name}">
           <span class="lvl-thumb" data-thumb="${i}"></span>
           <span class="lvl-info">
             <span class="lvl-num">${String(i + 1).padStart(2, '0')} &middot; ${def.name}</span>
             <span class="lvl-tagline">${def.tagline}</span>
-            <span class="tag">${def.tag}</span>
+            <span class="lvl-meta"><span class="tag">${def.tag}</span>${best ? `<span class="lvl-best">BEST ${best}</span>` : ''}</span>
           </span>
         </div>
-      `)
+      `;
+      })
       .join('');
     Array.from(levelListEl.children).forEach((el, i) => {
       el.addEventListener('click', () => {
         state.selectedLevel = i;
         renderLevelSelection();
         sfx('select');
-        startRun(i);
+        startGame(i);
       });
     });
     renderLevelSelection();
@@ -379,43 +376,27 @@ const Game = (() => {
     });
   }
 
-  function startRun(startIndex = 0) {
+  function startGame(index) {
     sfx('coin');
-    state.levelIndex = startIndex;
+    state.currentGameIndex = index;
+    state.stage = 1;
     state.lives = START_LIVES;
     state.score = 0;
-    loadLevel(startIndex);
+    const def = state.levelDefs[index];
+    state.levelInstance = def.factory(api);
+    state.levelInstance.init(state.stage);
+    updateHud();
+    const usesNumpad = def.tag === 'reflex';
+    if (touchDpad) touchDpad.classList.toggle('hidden', usesNumpad);
+    if (touchNumpad) touchNumpad.classList.toggle('hidden', !usesNumpad);
     state.mode = 'playing';
     hideAllScreens();
     startMusic();
   }
 
-  function loadLevel(index) {
-    const def = state.levelDefs[index];
-    state.levelInstance = def.factory(api);
-    state.levelInstance.init();
+  function continueStage() {
+    state.levelInstance.init(state.stage);
     updateHud();
-    const usesNumpad = def.tag === 'reflex';
-    if (touchDpad) touchDpad.classList.toggle('hidden', usesNumpad);
-    if (touchNumpad) touchNumpad.classList.toggle('hidden', !usesNumpad);
-  }
-
-  function advanceLevel() {
-    state.levelIndex++;
-    if (state.levelIndex >= state.levelDefs.length) {
-      sfx('win');
-      stopMusic();
-      vibrate([40, 60, 40, 60, 80]);
-      if (qualifiesForLeaderboard(state.score)) {
-        startInitialsEntry('win', state.score);
-      } else {
-        state.mode = 'win';
-        winScore.textContent = `FINAL SCORE ${state.score}  (BEST ${getBestScore()})`;
-        showScreen('win');
-      }
-      return;
-    }
-    loadLevel(state.levelIndex);
     state.mode = 'playing';
     hideAllScreens();
     startMusic();
@@ -438,6 +419,7 @@ const Game = (() => {
     state.mode = 'title';
     showScreen('title');
     stopMusic();
+    renderLevelList();
   }
 
   function addScore(n) {
@@ -453,16 +435,17 @@ const Game = (() => {
       sfx('lose');
       stopMusic();
       vibrate([60, 40, 120]);
-      if (qualifiesForLeaderboard(state.score)) {
+      const def = state.levelDefs[state.currentGameIndex];
+      if (qualifiesForLeaderboard(def.name, state.score)) {
         startInitialsEntry('gameover', state.score);
       } else {
         state.mode = 'gameover';
-        goScore.textContent = `SCORE ${state.score}  (BEST ${getBestScore()})`;
+        goScore.textContent = `SCORE ${state.score}  (BEST ${getBestScore(def.name)})`;
         showScreen('gameover');
       }
     } else {
       sfx('lifeLost');
-      state.levelInstance.init();
+      state.levelInstance.init(state.stage);
     }
   }
 
@@ -475,16 +458,27 @@ const Game = (() => {
 
   function winLevel(bonus = 0) {
     if (bonus) addScore(bonus);
-    state.mode = 'levelcomplete';
-    lcTitle.textContent = `${state.levelDefs[state.levelIndex].name} CLEAR`;
-    lcScore.textContent = `SCORE ${state.score}${bonus ? `  (+${bonus} bonus)` : ''}`;
+    const def = state.levelDefs[state.currentGameIndex];
+    const justHitEndless = state.stage === HAND_BUILT_STAGES;
+    const clearedStage = state.stage;
+    state.stage++;
     sfx('levelclear');
     stopMusic();
-    showScreen('levelcomplete');
+    if (justHitEndless) {
+      state.mode = 'win';
+      winScore.textContent = `SCORE ${state.score}  — ALL STAGES CLEARED! ENDLESS MODE ENGAGED`;
+      showScreen('win');
+    } else {
+      state.mode = 'levelcomplete';
+      lcTitle.textContent = `${def.name} — STAGE ${clearedStage} CLEAR`;
+      lcScore.textContent = `SCORE ${state.score}${bonus ? `  (+${bonus} bonus)` : ''}`;
+      showScreen('levelcomplete');
+    }
   }
 
   function updateHud() {
-    hudLevel.textContent = `LEVEL ${Math.min(state.levelIndex + 1, state.levelDefs.length)}/${state.levelDefs.length}`;
+    const def = state.currentGameIndex >= 0 ? state.levelDefs[state.currentGameIndex] : null;
+    hudLevel.textContent = def ? `${def.name} · STAGE ${state.stage}` : 'SELECT A GAME';
     hudScore.textContent = `SCORE ${state.score}`;
     hudLives.textContent = `LIVES ${'▲'.repeat(Math.max(state.lives, 0))}`;
   }
@@ -556,7 +550,7 @@ const Game = (() => {
 
   function boot() {
     updateSoundHud();
-    renderTitleLeaderboard();
+    updateHud();
     renderMarquee();
     renderLevelList();
     document.querySelectorAll('[data-key]').forEach(bindVirtualKey);

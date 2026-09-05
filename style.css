@@ -55,22 +55,6 @@ body {
 #hud-lives { color: var(--red); }
 #hud-sound { color: #7d86a3; font-size: 0.7em; cursor: default; }
 
-.leaderboard {
-  width: 100%;
-  max-width: 260px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  background: rgba(255,255,255,0.03);
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 8px 14px;
-  font-size: 14px;
-}
-.lb-row { display: flex; justify-content: space-between; color: var(--yellow); letter-spacing: 1px; }
-.lb-row:first-child { color: var(--green); text-shadow: 0 0 6px rgba(107,255,107,0.5); }
-.lb-empty { color: #7d86a3; font-size: 13px; text-align: center; }
-
 #marquee {
   width: 100%;
   overflow: hidden;
@@ -255,7 +239,9 @@ body {
 .lvl-info { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px 8px; }
 .lvl-num { font-size: 12px; color: var(--accent); font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lvl-tagline { font-size: 11px; color: #9aa3c0; line-height: 1.25; }
-.lvl-info .tag { font-size: 10px; color: #7d86a3; text-transform: uppercase; letter-spacing: 0.5px; }
+.lvl-meta { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+.lvl-meta .tag { font-size: 10px; color: #7d86a3; text-transform: uppercase; letter-spacing: 0.5px; }
+.lvl-best { font-size: 10px; color: var(--yellow); font-weight: bold; white-space: nowrap; }
 
 @media (max-width: 460px) {
   .levelist { grid-template-columns: repeat(2, 1fr); }

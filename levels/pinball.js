@@ -1,10 +1,9 @@
 function createPinballLevel(api) {
   const { W, H, isDown, addScore, loseLife, winLevel, sfx, shake } = api;
 
-  const GRAVITY = 900;
+  const GRAVITY_BASE = 900;
   const BALL_R = 9;
-  const MAX_SPEED = 900;
-  const TARGET_SCORE = 150;
+  const MAX_SPEED_BASE = 900;
 
   function normalize(x, y) {
     const len = Math.hypot(x, y) || 1;
@@ -13,24 +12,110 @@ function createPinballLevel(api) {
   function lerp(a, b, t) { return a + (b - a) * t; }
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
-  const walls = [
+  // structural boundary + inlane guides - identical on every stage. Without
+  // these, the gap between the outer rails and the flippers' resting reach
+  // is so wide that a ball can roll straight down either side and drain
+  // untouched. These funnel it back toward the flippers, like the plastic
+  // guides on a real table, while still leaving a narrower "outlane" for risk.
+  const BASE_WALLS = [
     { x: 14, y: 0, w: 10, h: 470 },
     { x: 616, y: 0, w: 10, h: 470 },
     { x: 14, y: 0, w: 612, h: 10 },
-    // inlane guides: without these, the gap between the outer rails and the
-    // flippers' resting reach is so wide that a ball can roll straight down
-    // either side and drain untouched. These funnel it back toward the
-    // flippers, like the plastic guides on a real table, while still leaving
-    // a narrower "outlane" for risk.
     { x: 170, y: 280, w: 8, h: 150 },
     { x: 462, y: 280, w: 8, h: 150 },
   ];
 
-  const bumpers = [
-    { x: 220, y: 150, r: 24, color: '#4fe3d0', cooldown: 0 },
-    { x: 420, y: 150, r: 24, color: '#ff4fa3', cooldown: 0 },
-    { x: 320, y: 235, r: 22, color: '#ffd24f', cooldown: 0 },
-  ];
+  // stage 4+ ("endless mode") scales continuously off stage 3's numbers
+  // instead of hand-tuning forever - capped so it never turns into an
+  // unwinnable or physics-breaking mess
+  function endlessScale(stageNum) {
+    return Math.min(1 + Math.max(0, stageNum - 3) * 0.12, 2.5);
+  }
+  function stagePhysicsMult(stageNum) {
+    if (stageNum <= 2) return 1.0;
+    if (stageNum === 3) return 1.15;
+    return Math.min(1.15 * endlessScale(stageNum), 2.6);
+  }
+  function stageTargetScore(stageNum) {
+    if (stageNum <= 1) return 150;
+    if (stageNum === 2) return 220;
+    if (stageNum === 3) return 300;
+    return Math.round(300 * endlessScale(stageNum));
+  }
+
+  // ---- stage layouts ----
+
+  function bumperLayoutStage1() {
+    return [
+      { x: 220, y: 150, r: 24, color: '#4fe3d0' },
+      { x: 420, y: 150, r: 24, color: '#ff4fa3' },
+      { x: 320, y: 235, r: 22, color: '#ffd24f' },
+    ];
+  }
+  function bumperLayoutStage2() {
+    // 4 bumpers in a wider diamond that opens a new lane straight down the middle
+    return [
+      { x: 320, y: 138, r: 22, color: '#ffd24f' },
+      { x: 210, y: 195, r: 24, color: '#4fe3d0' },
+      { x: 430, y: 195, r: 24, color: '#ff4fa3' },
+      { x: 320, y: 270, r: 22, color: '#8f8fff' },
+    ];
+  }
+  function bumperLayoutStage3() {
+    // 5 bumpers in a tight central cluster - much less open space to coast through
+    return [
+      { x: 320, y: 140, r: 20, color: '#ffd24f' },
+      { x: 250, y: 178, r: 22, color: '#4fe3d0' },
+      { x: 390, y: 178, r: 22, color: '#ff4fa3' },
+      { x: 288, y: 230, r: 20, color: '#8f8fff' },
+      { x: 352, y: 230, r: 20, color: '#6bff6b' },
+    ];
+  }
+
+  function targetLayoutStage1() {
+    return [
+      { x: 240, y: 60, w: 34, h: 14 },
+      { x: 304, y: 60, w: 34, h: 14 },
+      { x: 368, y: 60, w: 34, h: 14 },
+    ];
+  }
+  function targetLayoutStage2() {
+    // the original top row, plus a second lower "ramp" group of targets
+    return [
+      { x: 240, y: 60, w: 34, h: 14 },
+      { x: 304, y: 60, w: 34, h: 14 },
+      { x: 368, y: 60, w: 34, h: 14 },
+      { x: 268, y: 155, w: 30, h: 14 },
+      { x: 342, y: 155, w: 30, h: 14 },
+    ];
+  }
+  function targetLayoutStage3() {
+    // both rows again, tighter spacing and a 4th top target - the hardest gauntlet
+    return [
+      { x: 226, y: 55, w: 28, h: 14 },
+      { x: 262, y: 55, w: 28, h: 14 },
+      { x: 350, y: 55, w: 28, h: 14 },
+      { x: 386, y: 55, w: 28, h: 14 },
+      { x: 268, y: 150, w: 28, h: 14 },
+      { x: 344, y: 150, w: 28, h: 14 },
+    ];
+  }
+
+  function extraWallsForStage(stageNum) {
+    if (stageNum <= 1) return [];
+    // stage 2 and beyond (including every endless stage, since they all
+    // reuse stage 3's table) add a short ramp guide under the second row
+    // of targets - a small ramp-like ricochet feature the original table
+    // didn't have
+    return [{ x: 300, y: 100, w: 40, h: 8 }];
+  }
+
+  function layoutForStage(stageNum) {
+    if (stageNum <= 1) return { bumpers: bumperLayoutStage1(), targets: targetLayoutStage1() };
+    if (stageNum === 2) return { bumpers: bumperLayoutStage2(), targets: targetLayoutStage2() };
+    // stage 3 AND every endless stage beyond it reuse this layout verbatim
+    return { bumpers: bumperLayoutStage3(), targets: targetLayoutStage3() };
+  }
 
   const flippers = {
     left: {
@@ -48,15 +133,11 @@ function createPinballLevel(api) {
   const START_POS = { x: 590, y: 430 };
   const COMBO_WINDOW = 1.3;
 
-  const TARGET_DEFS = [
-    { x: 240, y: 60, w: 34, h: 14 },
-    { x: 304, y: 60, w: 34, h: 14 },
-    { x: 368, y: 60, w: 34, h: 14 },
-  ];
-
-  let balls, score, comboCount, comboTimer, popups, targets;
+  let balls, score, comboCount, comboTimer, popups, targets, bumpers, walls;
   let wallCooldown = 0;
   let plungerCharge = 0;
+  let curStage = 1;
+  let targetScore = stageTargetScore(1);
 
   function targetBounce(b) {
     for (const t of targets) {
@@ -135,7 +216,7 @@ function createPinballLevel(api) {
         const vDotN = b.vx * nx + b.vy * ny;
         b.vx -= 2 * vDotN * nx;
         b.vy -= 2 * vDotN * ny;
-        const speed = Math.max(Math.hypot(b.vx, b.vy), 380);
+        const speed = Math.max(Math.hypot(b.vx, b.vy), 380 * stagePhysicsMult(curStage));
         const dir = normalize(b.vx, b.vy);
         b.vx = dir.x * speed;
         b.vy = dir.y * speed;
@@ -145,7 +226,7 @@ function createPinballLevel(api) {
           comboCount = comboTimer > 0 ? comboCount + 1 : 1;
           comboTimer = COMBO_WINDOW;
           // bonus escalates with the streak but is capped so one lucky bumper
-          // rally can't blow past TARGET_SCORE and trivialize the table
+          // rally can't blow past the stage's target score and trivialize the table
           const bonus = 10 + Math.min(comboCount - 1, 6) * 5;
           score += bonus;
           addScore(bonus);
@@ -310,7 +391,7 @@ function createPinballLevel(api) {
       b.vx -= 2 * vDotN * nx;
       b.vy -= 2 * vDotN * ny;
       if (flip.raiseVel > 0.3) {
-        const kick = flip.raiseVel * flip.length * 0.9;
+        const kick = flip.raiseVel * flip.length * 0.9 * stagePhysicsMult(curStage);
         b.vx += flip.dir.y * -kick * 0.4 + nx * kick * 0.6;
         b.vy += flip.dir.x * kick * 0.4 + ny * kick * 0.6;
         sfx('swing');
@@ -322,12 +403,17 @@ function createPinballLevel(api) {
   }
 
   return {
-    init() {
+    init(stage = 1) {
+      curStage = stage;
+      targetScore = stageTargetScore(curStage);
+      const layout = layoutForStage(curStage);
+      bumpers = layout.bumpers.map((bp) => ({ ...bp, cooldown: 0, flash: 0 }));
+      targets = layout.targets.map((t) => ({ ...t, alive: true }));
+      walls = BASE_WALLS.concat(extraWallsForStage(curStage));
+
       balls = [{ x: START_POS.x, y: START_POS.y, vx: 0, vy: 0, launched: false }];
       flippers.left.raise = 0;
       flippers.right.raise = 0;
-      bumpers.forEach((bp) => { bp.cooldown = 0; bp.flash = 0; });
-      targets = TARGET_DEFS.map((t) => ({ ...t, alive: true }));
       score = 0;
       comboCount = 0;
       comboTimer = 0;
@@ -337,6 +423,10 @@ function createPinballLevel(api) {
     },
 
     update(dt) {
+      const physMult = stagePhysicsMult(curStage);
+      const gravity = GRAVITY_BASE * physMult;
+      const maxSpeed = MAX_SPEED_BASE * physMult;
+
       flipperState(flippers.left, 'ArrowLeft', dt);
       flipperState(flippers.right, 'ArrowRight', dt);
       bumpers.forEach((bp) => { bp.flash = Math.max(0, (bp.flash || 0) - dt); });
@@ -352,7 +442,7 @@ function createPinballLevel(api) {
           if (isDown('Space')) {
             plungerCharge = Math.min(1, plungerCharge + dt / 0.6);
           } else if (plungerCharge > 0) {
-            const power = 560 + plungerCharge * 160;
+            const power = (560 + plungerCharge * 160) * physMult;
             ball.launched = true;
             ball.vx = -90 - plungerCharge * 30;
             ball.vy = -power;
@@ -362,10 +452,10 @@ function createPinballLevel(api) {
           return;
         }
 
-        ball.vy += GRAVITY * dt;
+        ball.vy += gravity * dt;
         const speed = Math.hypot(ball.vx, ball.vy);
-        if (speed > MAX_SPEED) {
-          const s = MAX_SPEED / speed;
+        if (speed > maxSpeed) {
+          const s = maxSpeed / speed;
           ball.vx *= s; ball.vy *= s;
         }
         ball.x += ball.vx * dt;
@@ -403,8 +493,9 @@ function createPinballLevel(api) {
         return;
       }
 
-      if (score >= TARGET_SCORE) {
-        winLevel(30);
+      if (score >= targetScore) {
+        const clearBonus = Math.round(30 + (curStage - 1) * 6);
+        winLevel(clearBonus);
       }
     },
 
@@ -489,7 +580,7 @@ function createPinballLevel(api) {
 
       ctx.fillStyle = '#e8ecff';
       ctx.font = '10px monospace';
-      ctx.fillText(`SCORE ${score} / ${TARGET_SCORE}`, 24, 24);
+      ctx.fillText(`SCORE ${score} / ${targetScore}`, 24, 24);
       ctx.fillStyle = '#7d86a3';
       ctx.font = '8px monospace';
       ctx.fillText('ARROWS = FLIPPERS', 24, 40);

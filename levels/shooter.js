@@ -1,14 +1,39 @@
 function createShooterLevel(api) {
   const { W, H, isDown, addScore, loseLife, winLevel, sfx, shake } = api;
 
-  const ROWS = 4, COLS = 8;
   const ENEMY_W = 32, ENEMY_H = 20, GAP = 12;
-  const gridW = COLS * (ENEMY_W + GAP) - GAP;
-  const startX = (W - gridW) / 2;
 
   let player, bullets, enemyBullets, enemies, enemyDir, enemyStepTimer;
   let shotCooldown, hitFlash, invuln, particles, ufo, ufoTimer, popups, bunkers, stars, combo;
+  let cfg, rows, cols, gridW, startX;
   const UFO_SCORES = [50, 50, 100, 100, 150, 300];
+
+  // Three hand-built stages: stage 2 is a noticeably bigger/denser formation
+  // with a faster descent and more frequent UFOs; stage 3 bigger/faster still,
+  // plus an extra row and tougher (2-hit) bunkers. Stage 4+ ("endless mode")
+  // scales stage 3's setup smoothly with `stage`, capped so it stays winnable.
+  const STAGE_CONFIGS = {
+    1: { rows: 4, cols: 8, stepInterval: 0.5, dropDy: 14, ufoMin: 6, ufoMax: 11, fireRateMult: 1, bunkerHp: 1 },
+    2: { rows: 5, cols: 9, stepInterval: 0.42, dropDy: 16, ufoMin: 4, ufoMax: 8, fireRateMult: 1.3, bunkerHp: 1 },
+    3: { rows: 6, cols: 10, stepInterval: 0.34, dropDy: 18, ufoMin: 3, ufoMax: 6, fireRateMult: 1.6, bunkerHp: 2 },
+  };
+
+  function getStageConfig(stage) {
+    const s = Math.max(1, Math.floor(stage) || 1);
+    if (s <= 3) return STAGE_CONFIGS[s];
+    const scale = Math.min(2.6, 1 + (s - 3) * 0.12);
+    const s3 = STAGE_CONFIGS[3];
+    return {
+      rows: s3.rows,
+      cols: s3.cols,
+      stepInterval: Math.max(0.14, s3.stepInterval / scale),
+      dropDy: s3.dropDy * Math.min(1.6, scale),
+      ufoMin: Math.max(1.2, s3.ufoMin / scale),
+      ufoMax: Math.max(2.5, s3.ufoMax / scale),
+      fireRateMult: s3.fireRateMult * scale,
+      bunkerHp: s3.bunkerHp,
+    };
+  }
 
   const BUNKER_PATTERN = ['.XXXXX.', 'XXXXXXX', 'XXXXXXX', 'XXXXXXX', 'XX...XX'];
   const BLOCK = 6;
@@ -16,9 +41,10 @@ function createShooterLevel(api) {
   const BUNKER_Y = 366;
 
   function spawnBunkers() {
+    const hp = cfg.bunkerHp;
     bunkers = BUNKER_XS.map((x) => ({
       x, y: BUNKER_Y, w: BUNKER_PATTERN[0].length * BLOCK, h: BUNKER_PATTERN.length * BLOCK,
-      blocks: BUNKER_PATTERN.map((row) => row.split('').map((ch) => ch === 'X')),
+      blocks: BUNKER_PATTERN.map((row) => row.split('').map((ch) => (ch === 'X' ? hp : 0))),
     }));
   }
 
@@ -33,7 +59,7 @@ function createShooterLevel(api) {
       let hit = false;
       for (let r = r0; r <= r1; r++) {
         for (let c = c0; c <= c1; c++) {
-          if (bk.blocks[r][c]) { bk.blocks[r][c] = false; hit = true; }
+          if (bk.blocks[r][c] > 0) { bk.blocks[r][c] -= 1; hit = true; }
         }
       }
       if (hit) return true;
@@ -86,9 +112,11 @@ function createShooterLevel(api) {
   ];
 
   function spawnEnemies() {
+    gridW = cols * (ENEMY_W + GAP) - GAP;
+    startX = (W - gridW) / 2;
     enemies = [];
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
         enemies.push({
           x: startX + c * (ENEMY_W + GAP),
           y: 40 + r * (ENEMY_H + GAP),
@@ -120,7 +148,10 @@ function createShooterLevel(api) {
   }
 
   return {
-    init() {
+    init(stage = 1) {
+      cfg = getStageConfig(stage);
+      rows = cfg.rows;
+      cols = cfg.cols;
       player = { x: W / 2 - 16, y: H - 40, w: 32, h: 16, speed: 220 };
       bullets = [];
       enemyBullets = [];
@@ -132,7 +163,7 @@ function createShooterLevel(api) {
       hitFlash = 0;
       particles = [];
       ufo = null;
-      ufoTimer = 6 + Math.random() * 5;
+      ufoTimer = cfg.ufoMin + Math.random() * (cfg.ufoMax - cfg.ufoMin);
       popups = [];
       combo = 0;
       spawnBunkers();
@@ -162,10 +193,11 @@ function createShooterLevel(api) {
       const aliveEnemies = enemies.filter((e) => e.alive);
       // Aggression ramps as the ranks thin — both movement speed and firing
       // rate scale off the same curve, so the last few invaders stay tense
-      // instead of the fight fizzling out once most of the wave is dead.
-      const pressureFactor = 1 + (1 - aliveEnemies.length / (ROWS * COLS)) * 2.2;
+      // instead of the fight fizzling out once most of the wave is dead. This
+      // within-stage ramp layers on top of the stage's own baseline pace.
+      const pressureFactor = 1 + (1 - aliveEnemies.length / (rows * cols)) * 2.2;
       enemyStepTimer += dt * pressureFactor;
-      const stepInterval = 0.5;
+      const stepInterval = cfg.stepInterval;
       let edgeHit = false;
       if (enemyStepTimer >= stepInterval) {
         enemyStepTimer = 0;
@@ -176,12 +208,12 @@ function createShooterLevel(api) {
         });
         if (edgeHit) {
           enemyDir *= -1;
-          aliveEnemies.forEach((e) => (e.y += 14));
+          aliveEnemies.forEach((e) => (e.y += cfg.dropDy));
         }
         aliveEnemies.forEach((e) => hitBunkers(e));
       }
 
-      if (aliveEnemies.length && Math.random() < 0.5 * dt * pressureFactor) {
+      if (aliveEnemies.length && Math.random() < 0.5 * dt * pressureFactor * cfg.fireRateMult) {
         const shooter = aliveEnemies[Math.floor(Math.random() * aliveEnemies.length)];
         enemyBullets.push({ x: shooter.x + shooter.w / 2 - 2, y: shooter.y + shooter.h, w: 4, h: 10 });
       }
@@ -234,7 +266,7 @@ function createShooterLevel(api) {
             sfx('explosion');
             shake(0.1, 3);
             ufo = null;
-            ufoTimer = 9 + Math.random() * 7;
+            ufoTimer = (cfg.ufoMin + 3) + Math.random() * (cfg.ufoMax - cfg.ufoMin + 3);
           }
         });
         bullets = bullets.filter((b) => !b.hit);
