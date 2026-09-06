@@ -18,15 +18,25 @@ function createBreakoutLevel(api) {
   const COMBO_WINDOW = 0.9;
 
   // cheap per-stage cabinet-glow tint so each stage reads as "somewhere new"
-  // without touching any gameplay or brick colors - stage 3's tint carries
-  // into endless mode, same as the layout it reuses
+  // without touching any gameplay or brick colors - stage 10's tint carries
+  // into endless mode, same as the layout it reuses. Runs a loose
+  // day -> dusk -> night -> storm -> dawn/inferno cycle across the 10
+  // hand-built stages.
+  const HAND_BUILT_STAGES = 10;
   const BG_THEMES = {
     1: ['#0c1712', '#03060a'], // dim workshop green
     2: ['#0c1424', '#03060a'], // cool blue-violet
-    3: ['#1c0f14', '#050308'], // hot magenta-red - the toughest wall
+    3: ['#1c0f14', '#050308'], // hot magenta-red
+    4: ['#0d1a1a', '#03080a'], // deep teal dusk
+    5: ['#1a1408', '#0a0503'], // amber dust storm
+    6: ['#160c22', '#040308'], // violet twilight
+    7: ['#10141c', '#03050a'], // stormy slate
+    8: ['#220a0a', '#0a0202'], // crimson alert
+    9: ['#0a0614', '#020104'], // void black-purple
+    10: ['#2c0a06', '#0a0101'], // white-hot inferno - the toughest wall
   };
   function bgTheme(stageNum) {
-    return BG_THEMES[Math.min(Math.max(stageNum, 1), 3)];
+    return BG_THEMES[Math.min(Math.max(stageNum, 1), HAND_BUILT_STAGES)];
   }
 
   let paddle, balls, bricks, particles, powerups, wideTimer, slowTimer;
@@ -34,30 +44,33 @@ function createBreakoutLevel(api) {
   let curStage = 1;
   let totalBricks = 0;
 
-  // stage 4+ ("endless mode") scales continuously off of stage 3's numbers
+  // stage 11+ ("endless mode") scales continuously off of stage 10's numbers
   // instead of hand-tuning forever - capped so it never becomes unplayable
   function endlessScale(stageNum) {
-    return Math.min(1 + Math.max(0, stageNum - 3) * 0.12, 2.5);
+    return Math.min(1 + Math.max(0, stageNum - HAND_BUILT_STAGES) * 0.12, 2.5);
   }
 
+  // hand-tuned baseline for stages 1-10; endless mode (11+) scales the last
+  // entry by endlessScale() below, capped at the same 3.2 ceiling that was
+  // already tuned for this curve
+  const STAGE_SPEED_MULT = [1.0, 1.15, 1.3, 1.42, 1.53, 1.64, 1.75, 1.86, 1.97, 2.08];
   function stageSpeedMult(stageNum) {
-    if (stageNum <= 1) return 1.0;
-    if (stageNum === 2) return 1.15;
-    if (stageNum === 3) return 1.3;
-    return Math.min(1.3 * endlessScale(stageNum), 3.2);
+    const idx = Math.min(Math.max(stageNum, 1), HAND_BUILT_STAGES) - 1;
+    if (stageNum <= HAND_BUILT_STAGES) return STAGE_SPEED_MULT[idx];
+    return Math.min(STAGE_SPEED_MULT[STAGE_SPEED_MULT.length - 1] * endlessScale(stageNum), 3.2);
   }
 
+  // "ball speeds up as the wall clears" coefficient, hand-tuned per stage.
+  // Past stage 10 this stays FLAT at stage 10's value rather than climbing
+  // further - stageSpeedMult() above already carries the endless-mode ramp
+  // (with its own explicit cap), so multiplying two independently-growing
+  // endless curves together would blow well past that cap: a ball nearing a
+  // full clear could hit far more than the intended ~3.2x baseline speed,
+  // right as the player is about to win the stage.
+  const STAGE_PROGRESS_COEFF = [0.35, 0.42, 0.5, 0.56, 0.62, 0.68, 0.74, 0.80, 0.86, 0.92];
   function stageProgressCoeff(stageNum) {
-    if (stageNum <= 1) return 0.35;
-    if (stageNum === 2) return 0.42;
-    // Stage 3 and every endless stage share this same "ball speeds up as the
-    // wall clears" coefficient. It must NOT keep climbing with `stageNum` -
-    // stageSpeedMult() already carries the endless-mode ramp (with its own
-    // explicit cap), so multiplying two independently-growing endless curves
-    // together would blow well past that cap: at stage ~16 a ball nearing a
-    // full clear would hit ~6x baseline speed instead of the intended ~3.2x,
-    // right as the player is about to win the stage.
-    return 0.5;
+    const idx = Math.min(Math.max(stageNum, 1), HAND_BUILT_STAGES) - 1;
+    return STAGE_PROGRESS_COEFF[idx];
   }
 
   // ---- stage layouts: (row, col) grids that get turned into brick objects ----
@@ -103,13 +116,142 @@ function createBreakoutLevel(api) {
     return list;
   }
 
-  function makeBricks(stageNum) {
-    const layout = stageNum <= 1 ? layoutStage1() : stageNum === 2 ? layoutStage2() : layoutStage3();
+  function layoutStage4() {
+    // 9-row diamond formation, narrow at top and bottom and full-width
+    // through the middle, with a thick 2-hit band tracing the diamond's
+    // outer edges around a softer 1-hit core
+    const list = [];
+    const rows = 9, centerCol = (COLS - 1) / 2;
+    for (let r = 0; r < rows; r++) {
+      const halfWidth = 5 - Math.abs(r - 4);
+      for (let c = 0; c < COLS; c++) {
+        const dist = Math.abs(c - centerCol);
+        if (dist >= halfWidth) continue;
+        const tough = dist >= halfWidth - 2;
+        list.push({ r, c, hp: tough ? 2 : 1, color: tough ? TOUGH_COLOR : colors[r % colors.length] });
+      }
+    }
+    return list;
+  }
 
-    // endless mode reuses stage 3's layout verbatim but piles extra hit
+  function layoutStage5() {
+    // 8-row stepped pyramid - width grows in blocky 2-row steps rather than
+    // a smooth diagonal, capped with a reinforced 2-hit base
+    const list = [];
+    const rows = 8, centerCol = (COLS - 1) / 2;
+    for (let r = 0; r < rows; r++) {
+      const halfWidth = 2 + Math.floor(r / 2);
+      for (let c = 0; c < COLS; c++) {
+        const dist = Math.abs(c - centerCol);
+        if (dist >= halfWidth) continue;
+        const base = r >= rows - 2;
+        list.push({ r, c, hp: base ? 2 : 1, color: base ? TOUGH_COLOR : colors[r % colors.length] });
+      }
+    }
+    return list;
+  }
+
+  function layoutStage6() {
+    // fortress: a solid roof, 3-hit reinforced corner towers, and an open
+    // lane straight down the middle once the roof is breached
+    const list = [];
+    const rows = 8;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (r > 0 && (c === 4 || c === 5)) continue; // open center lane below the roof
+        const corner = (r < 2 || r >= rows - 2) && (c < 2 || c >= COLS - 2);
+        list.push({ r, c, hp: corner ? 3 : 1, color: corner ? TOUGH_COLOR : colors[r % colors.length] });
+      }
+    }
+    return list;
+  }
+
+  function layoutStage7() {
+    // checkerboard of gaps - the ball has empty pockets to slip through,
+    // but roughly half of what remains is a 2-hit tank, so sloppy hits
+    // barely dent the wall
+    const list = [];
+    const rows = 9;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if ((r + c) % 2 === 0) continue; // checkerboard gap
+        const tough = (r + c) % 4 === 1;
+        list.push({ r, c, hp: tough ? 2 : 1, color: tough ? TOUGH_COLOR : colors[r % colors.length] });
+      }
+    }
+    return list;
+  }
+
+  function layoutStage8() {
+    // zigzag corridor - a single-column gap snakes back and forth across
+    // the full width of the wall, bordered by 2-hit bricks, forcing precise
+    // angled shots to thread it
+    const list = [];
+    const rows = 9;
+    for (let r = 0; r < rows; r++) {
+      const period = 8;
+      const tri = Math.abs(((r % period) + period) % period - period / 2); // 0..4 triangle wave
+      const gapCol = 1 + tri * 2; // sweeps between col 1 and col 9
+      for (let c = 0; c < COLS; c++) {
+        if (c === gapCol) continue;
+        const border = c === gapCol - 1 || c === gapCol + 1;
+        list.push({ r, c, hp: border ? 2 : 1, color: border ? TOUGH_COLOR : colors[r % colors.length] });
+      }
+    }
+    return list;
+  }
+
+  function layoutStage9() {
+    // wall with windows - regular 2-hi punch-outs give the ball entry
+    // points, but most of what's left standing is now 2-hit reinforced
+    const list = [];
+    const rows = 9;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const isWindow = (r % 4 === 1 || r % 4 === 2) && (c % 4 === 1 || c % 4 === 2);
+        if (isWindow) continue;
+        const tough = (r + c) % 3 !== 0; // roughly two-thirds reinforced
+        list.push({ r, c, hp: tough ? 2 : 1, color: tough ? TOUGH_COLOR : colors[r % colors.length] });
+      }
+    }
+    return list;
+  }
+
+  function layoutStage10() {
+    // the final wall: dense, mostly 2-hit reinforced, a single zigzag path
+    // to sneak through, and four 4-hit "boss" blocks anchoring the corners
+    // - the toughest hand-built stage, but still clearable by a steady,
+    // well-aimed player
+    const list = [];
+    const rows = 9;
+    for (let r = 0; r < rows; r++) {
+      const period = 8;
+      const tri = Math.abs(((r % period) + period) % period - period / 2);
+      const gapCol = 1 + tri * 2;
+      for (let c = 0; c < COLS; c++) {
+        if (c === gapCol) continue;
+        const isBoss = (r < 2 || r >= rows - 2) && (c < 2 || c >= COLS - 2);
+        const tough = !isBoss && (r + c) % 2 === 0;
+        const hp = isBoss ? 4 : tough ? 2 : 1;
+        list.push({ r, c, hp, color: isBoss ? TOUGH_COLOR : colors[r % colors.length] });
+      }
+    }
+    return list;
+  }
+
+  const LAYOUT_FNS = [
+    layoutStage1, layoutStage2, layoutStage3, layoutStage4, layoutStage5,
+    layoutStage6, layoutStage7, layoutStage8, layoutStage9, layoutStage10,
+  ];
+
+  function makeBricks(stageNum) {
+    const idx = Math.min(Math.max(stageNum, 1), HAND_BUILT_STAGES) - 1;
+    const layout = LAYOUT_FNS[idx]();
+
+    // endless mode reuses stage 10's layout verbatim but piles extra hit
     // points onto every brick as the stage climbs
     const scale = endlessScale(stageNum);
-    const extraHp = stageNum > 3 ? Math.floor((scale - 1) * 2.2) : 0;
+    const extraHp = stageNum > HAND_BUILT_STAGES ? Math.floor((scale - 1) * 2.2) : 0;
 
     bricks = layout.map(({ r, c, hp, color }) => ({
       x: startX + c * (BRICK_W + BRICK_GAP),

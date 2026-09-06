@@ -32,7 +32,14 @@ function createBugBlitzLevel(api) {
   const FIELD_THEMES = [
     ['#173a1a', '#0a2410'], // stage 1: lush garden
     ['#3a2f14', '#1c1508'], // stage 2: dry autumn field
-    ['#1a1030', '#08051c'], // stage 3+: toxic hive at night
+    ['#1a1030', '#08051c'], // stage 3: toxic hive at night
+    ['#123329', '#051911'], // stage 4: spore marsh
+    ['#3a1f0e', '#1c0d04'], // stage 5: ember canyon
+    ['#0e2a3a', '#04121c'], // stage 6: frostbite hollow
+    ['#3a0e14', '#1c0308'], // stage 7: crimson thicket
+    ['#1c0e3a', '#08041c'], // stage 8: voidbloom cavern
+    ['#3a1408', '#1c0602'], // stage 9: molten hive
+    ['#3a0e30', '#1c0416'], // stage 10+: swarm nexus
   ];
   function fieldTheme(stage) {
     return FIELD_THEMES[Math.min(FIELD_THEMES.length, Math.max(1, Math.floor(stage))) - 1];
@@ -44,8 +51,16 @@ function createBugBlitzLevel(api) {
   // Stage 1: baseline density/length/speed (unchanged from the original tuning).
   // Stage 2: denser field, longer centipede, faster stepping.
   // Stage 3: denser/longer/faster still, two centipede chains active from the start.
-  // Stage 4+: endless mode — smoothly scale stage 3's baseline, capped so it never
-  // becomes literally impossible.
+  // Stage 4: spore marsh — density and length creep up, chains stay at 2.
+  // Stage 5: ember canyon — noticeably faster stepping, bigger target.
+  // Stage 6: frostbite hollow — third simultaneous chain enters.
+  // Stage 7: crimson thicket — dense field, longer centipedes, three chains.
+  // Stage 8: voidbloom cavern — faster still, three chains, big segment target.
+  // Stage 9: molten hive — fourth simultaneous chain enters.
+  // Stage 10: swarm nexus — hand-built peak: densest field, longest/fastest
+  // centipedes, four simultaneous chains, largest segment target.
+  // Stage 11+: endless mode — smoothly scale stage 10's baseline, capped so it
+  // never becomes literally impossible.
   function stageConfig(stage) {
     const s = Math.max(1, Math.floor(stage));
     if (s === 1) {
@@ -57,14 +72,35 @@ function createBugBlitzLevel(api) {
     if (s === 3) {
       return { densityTop: 0.28, densityBottom: 0.10, segmentCount: 18, baseStep: 0.09, target: 70, chains: 2 };
     }
-    const scale = Math.min(2.5, 1 + (s - 3) * 0.12);
+    if (s === 4) {
+      return { densityTop: 0.32, densityBottom: 0.12, segmentCount: 19, baseStep: 0.085, target: 80, chains: 2 };
+    }
+    if (s === 5) {
+      return { densityTop: 0.35, densityBottom: 0.13, segmentCount: 20, baseStep: 0.08, target: 90, chains: 2 };
+    }
+    if (s === 6) {
+      return { densityTop: 0.37, densityBottom: 0.14, segmentCount: 21, baseStep: 0.075, target: 100, chains: 3 };
+    }
+    if (s === 7) {
+      return { densityTop: 0.39, densityBottom: 0.15, segmentCount: 22, baseStep: 0.07, target: 110, chains: 3 };
+    }
+    if (s === 8) {
+      return { densityTop: 0.41, densityBottom: 0.16, segmentCount: 23, baseStep: 0.065, target: 120, chains: 3 };
+    }
+    if (s === 9) {
+      return { densityTop: 0.43, densityBottom: 0.17, segmentCount: 24, baseStep: 0.06, target: 130, chains: 4 };
+    }
+    if (s === 10) {
+      return { densityTop: 0.45, densityBottom: 0.18, segmentCount: 26, baseStep: 0.055, target: 145, chains: 4 };
+    }
+    const scale = Math.min(2.5, 1 + (s - 10) * 0.12);
     return {
-      densityTop: Math.min(0.45, 0.28 * scale),
-      densityBottom: Math.min(0.2, 0.10 * scale),
-      segmentCount: Math.min(26, Math.round(18 + (s - 3) * 1.3)),
-      baseStep: Math.max(0.05, 0.09 / scale),
-      target: Math.round(70 + (s - 3) * 15),
-      chains: Math.min(4, 2 + Math.floor((s - 4) / 4)),
+      densityTop: Math.min(0.55, 0.45 * scale),
+      densityBottom: Math.min(0.25, 0.18 * scale),
+      segmentCount: Math.min(34, Math.round(26 + (s - 10) * 1.3)),
+      baseStep: Math.max(0.045, 0.055 / scale),
+      target: Math.round(145 + (s - 10) * 15),
+      chains: 4,
     };
   }
 

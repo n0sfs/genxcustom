@@ -221,7 +221,7 @@ const Game = (() => {
     showScreen('gameover');
   }
 
-  const HAND_BUILT_STAGES = 3;
+  const HAND_BUILT_STAGES = 10;
 
   const state = {
     mode: 'title', // title | playing | levelcomplete | gameover | win | pause | initials

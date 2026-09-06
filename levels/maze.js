@@ -10,6 +10,8 @@ function createMazeLevel(api) {
   const OX = (W - COLS * CELL) / 2;
   const OY = (H - ROWS * CELL) / 2;
 
+  const HAND_BUILT_STAGES = 10;
+
   function shuffle(arr) {
     for (let i = arr.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -20,11 +22,16 @@ function createMazeLevel(api) {
 
   // Shared recursive-backtracker carve, parametrized by seed cell + braid
   // (extra-loop) chance so each stage can produce a genuinely different wall
-  // layout without duplicating the whole generator.
-  function carveFrom(seedCx, seedCy, braidChance, colLimit) {
+  // layout without duplicating the whole generator. colLimit/rowLimit (both
+  // optional) confine the carve to a sub-rectangle of the maze-cell grid
+  // (used by the mirrored/quadrant stages) — the braid pass is confined to
+  // the same sub-rectangle so it never spuriously opens a connector into an
+  // as-yet-uncarved region.
+  function carveFrom(seedCx, seedCy, braidChance, colLimit, rowLimit) {
     const grid = Array.from({ length: ROWS }, () => Array(COLS).fill(1));
     const visited = Array.from({ length: M_ROWS }, () => Array(M_COLS).fill(false));
     const maxCol = colLimit == null ? M_COLS : colLimit;
+    const maxRow = rowLimit == null ? M_ROWS : rowLimit;
 
     function carve(cx, cy) {
       visited[cy][cx] = true;
@@ -32,7 +39,7 @@ function createMazeLevel(api) {
       const dirs = shuffle([[0, -1], [0, 1], [-1, 0], [1, 0]]);
       for (const [dx, dy] of dirs) {
         const nx = cx + dx, ny = cy + dy;
-        if (nx >= 0 && nx < maxCol && ny >= 0 && ny < M_ROWS && !visited[ny][nx]) {
+        if (nx >= 0 && nx < maxCol && ny >= 0 && ny < maxRow && !visited[ny][nx]) {
           grid[cy * 2 + 1 + dy][cx * 2 + 1 + dx] = 0;
           carve(nx, ny);
         }
@@ -41,13 +48,61 @@ function createMazeLevel(api) {
     carve(seedCx, seedCy);
 
     const braidMaxGx = colLimit == null ? COLS - 1 : colLimit * 2;
-    for (let gy = 1; gy < ROWS - 1; gy++) {
+    const braidMaxGy = rowLimit == null ? ROWS - 1 : rowLimit * 2;
+    for (let gy = 1; gy < braidMaxGy; gy++) {
       for (let gx = 1; gx < braidMaxGx; gx++) {
         const between = (gx % 2 === 0 && gy % 2 === 1) || (gx % 2 === 1 && gy % 2 === 0);
         if (between && grid[gy][gx] === 1 && Math.random() < braidChance) grid[gy][gx] = 0;
       }
     }
     return grid;
+  }
+
+  // Visits every maze cell (cx,cy) exactly once in clockwise boundary-peeling
+  // order (outer ring first, then the next ring in, ...). Standard property:
+  // every consecutive pair in the returned list is grid-adjacent, which is
+  // what lets buildMazeStage4 turn it directly into a connected corridor.
+  function spiralOrder() {
+    const order = [];
+    let top = 0, bottom = M_ROWS - 1, left = 0, right = M_COLS - 1;
+    while (top <= bottom && left <= right) {
+      for (let x = left; x <= right; x++) order.push([x, top]);
+      top++;
+      for (let y = top; y <= bottom; y++) order.push([right, y]);
+      right--;
+      if (top <= bottom) {
+        for (let x = right; x >= left; x--) order.push([x, bottom]);
+        bottom--;
+      }
+      if (left <= right) {
+        for (let y = bottom; y >= top; y--) order.push([left, y]);
+        left++;
+      }
+    }
+    return order;
+  }
+
+  // Distance (in maze cells) from a cell to the nearest maze edge — 0 on the
+  // outer ring, increasing inward. Two 4-adjacent cells with the same layer
+  // always lie on the same concentric ring/frame; two 4-adjacent cells whose
+  // layers differ by exactly 1 are on neighboring rings. Used by
+  // buildMazeStage5's concentric-rings generator.
+  function layerOf(cx, cy) {
+    return Math.min(cx, cy, M_COLS - 1 - cx, M_ROWS - 1 - cy);
+  }
+
+  // Scatters a few extra wall-openings across the whole grid on top of an
+  // already-connected maze. Since it only ever removes walls, it can never
+  // sever a connection — only add shortcut loops — so it's safe to call on
+  // any fully-carved grid. Used by stages that build their grid with
+  // something other than carveFrom (which has its own confined braid pass).
+  function braidPass(grid, chance) {
+    for (let gy = 1; gy < ROWS - 1; gy++) {
+      for (let gx = 1; gx < COLS - 1; gx++) {
+        const between = (gx % 2 === 0 && gy % 2 === 1) || (gx % 2 === 1 && gy % 2 === 0);
+        if (between && grid[gy][gx] === 1 && Math.random() < chance) grid[gy][gx] = 0;
+      }
+    }
   }
 
   // Stage 1: original default layout — corner-seeded, light braid (a fairly
@@ -79,10 +134,218 @@ function createMazeLevel(api) {
     return grid;
   }
 
+  // Stage 4: spiral corridor maze — carved as one long corridor that winds
+  // from the outer ring inward to the center (spiralOrder() visits every
+  // maze cell exactly once, each consecutive pair grid-adjacent), so this is
+  // a genuine Hamiltonian-path spanning tree rather than a branching carve.
+  // A light braid pass adds a handful of shortcut loops so it isn't a pure
+  // single-thread corridor to walk.
+  function buildMazeStage4() {
+    const grid = Array.from({ length: ROWS }, () => Array(COLS).fill(1));
+    const order = spiralOrder();
+    order.forEach(([cx, cy], i) => {
+      grid[cy * 2 + 1][cx * 2 + 1] = 0;
+      if (i > 0) {
+        const [px, py] = order[i - 1];
+        grid[py * 2 + 1 + (cy - py)][px * 2 + 1 + (cx - px)] = 0;
+      }
+    });
+    braidPass(grid, 0.06);
+    return grid;
+  }
+
+  // Stage 5: concentric-rings maze — every maze cell is open; walls form
+  // rectangular "onion" rings (layerOf groups cells into rings by distance
+  // from the edge), and each ring connects to the ring just inside it
+  // through at least one deliberate spoke opening (1-2, chosen randomly from
+  // every valid boundary pair each time), so the whole thing is one
+  // connected maze of nested loops rather than a tree of dead ends. The
+  // "at least one spoke" guarantee is structural, not probabilistic: every
+  // ring boundary always has candidate connector pairs, and one is always
+  // taken.
+  function buildMazeStage5() {
+    const grid = Array.from({ length: ROWS }, () => Array(COLS).fill(1));
+    for (let cy = 0; cy < M_ROWS; cy++) {
+      for (let cx = 0; cx < M_COLS; cx++) {
+        grid[cy * 2 + 1][cx * 2 + 1] = 0;
+        if (cx + 1 < M_COLS && layerOf(cx + 1, cy) === layerOf(cx, cy)) grid[cy * 2 + 1][cx * 2 + 2] = 0;
+        if (cy + 1 < M_ROWS && layerOf(cx, cy + 1) === layerOf(cx, cy)) grid[cy * 2 + 2][cx * 2 + 1] = 0;
+      }
+    }
+    const maxLayer = layerOf(Math.floor(M_COLS / 2), Math.floor(M_ROWS / 2));
+    for (let L = 0; L < maxLayer; L++) {
+      const candidates = [];
+      for (let cy = 0; cy < M_ROWS; cy++) {
+        for (let cx = 0; cx < M_COLS; cx++) {
+          if (layerOf(cx, cy) !== L) continue;
+          [[1, 0], [0, 1], [-1, 0], [0, -1]].forEach(([dx, dy]) => {
+            const nx = cx + dx, ny = cy + dy;
+            if (nx >= 0 && nx < M_COLS && ny >= 0 && ny < M_ROWS && layerOf(nx, ny) === L + 1) {
+              candidates.push([cx, cy, dx, dy]);
+            }
+          });
+        }
+      }
+      shuffle(candidates);
+      const spokes = Math.min(candidates.length, 1 + Math.floor(Math.random() * 2));
+      for (let i = 0; i < spokes; i++) {
+        const [cx, cy, dx, dy] = candidates[i];
+        grid[cy * 2 + 1 + dy][cx * 2 + 1 + dx] = 0;
+      }
+    }
+    return grid;
+  }
+
+  // Stage 6: four mirrored quadrants — only the top-left quadrant (plus the
+  // shared center row/column) is carved, then mirrored across both the
+  // vertical AND horizontal center lines, producing a fully symmetric
+  // 4-quadrant layout — a step up from stage 3's single left-right mirror.
+  // Connectivity holds by the same argument as stage 3's mirror (the carve
+  // spans a connected tree over the whole sub-rectangle, including the
+  // shared center row/column, so both mirror passes stitch onto shared,
+  // already-carved cells rather than two disjoint copies).
+  function buildMazeStage6() {
+    const halfCols = Math.ceil(M_COLS / 2); // 5 -> maze cols 0..4, grid col 9 shared
+    const halfRows = Math.ceil(M_ROWS / 2); // 4 -> maze rows 0..3, grid row 7 shared
+    const grid = carveFrom(0, 0, 0.15, halfCols, halfRows);
+    // mirror left -> right across the shared center column
+    for (let gy = 0; gy < ROWS; gy++) {
+      for (let gx = 0; gx < COLS; gx++) {
+        const mx = COLS - 1 - gx;
+        if (mx > gx) grid[gy][mx] = grid[gy][gx];
+      }
+    }
+    // mirror top -> bottom across the shared center row, now that the full
+    // top band (both quadrants) exists to reflect downward
+    for (let gy = 0; gy < ROWS; gy++) {
+      const my = ROWS - 1 - gy;
+      if (my > gy) {
+        for (let gx = 0; gx < COLS; gx++) grid[my][gx] = grid[gy][gx];
+      }
+    }
+    return grid;
+  }
+
+  // Stage 7: dense small-cell maze — grown with a randomized-Prim's frontier
+  // (pick a random cell touching the already-visited region, connect it
+  // back) rather than the recursive-backtracker's long twisty corridors,
+  // which packs the same fixed grid with lots of short, evenly-scattered
+  // branches and small dead-end pockets for a denser feel. (The engine's
+  // cell grid size is shared across every stage, so "small-cell" is
+  // expressed as maze density rather than literally shrinking the grid.)
+  function buildMazeStage7() {
+    const grid = Array.from({ length: ROWS }, () => Array(COLS).fill(1));
+    const visited = Array.from({ length: M_ROWS }, () => Array(M_COLS).fill(false));
+    const sx = Math.floor(M_COLS / 2), sy = 0;
+    visited[sy][sx] = true;
+    grid[sy * 2 + 1][sx * 2 + 1] = 0;
+    const frontier = [];
+    const pushFrontier = (cx, cy) => {
+      [[0, -1], [0, 1], [-1, 0], [1, 0]].forEach(([dx, dy]) => {
+        const nx = cx + dx, ny = cy + dy;
+        if (nx >= 0 && nx < M_COLS && ny >= 0 && ny < M_ROWS && !visited[ny][nx]) frontier.push([nx, ny]);
+      });
+    };
+    pushFrontier(sx, sy);
+    while (frontier.length) {
+      const [cx, cy] = frontier.splice(Math.floor(Math.random() * frontier.length), 1)[0];
+      if (visited[cy][cx]) continue;
+      const back = shuffle([[0, -1], [0, 1], [-1, 0], [1, 0]]).find(([dx, dy]) => {
+        const nx = cx + dx, ny = cy + dy;
+        return nx >= 0 && nx < M_COLS && ny >= 0 && ny < M_ROWS && visited[ny][nx];
+      });
+      if (back) grid[cy * 2 + 1 + back[1]][cx * 2 + 1 + back[0]] = 0;
+      visited[cy][cx] = true;
+      grid[cy * 2 + 1][cx * 2 + 1] = 0;
+      pushFrontier(cx, cy);
+    }
+    braidPass(grid, 0.08);
+    return grid;
+  }
+
+  // Stage 8: sparse open maze — same corner-seeded carve as stage 1 but with
+  // a much heavier braid pass, dissolving most interior walls into a wide
+  // open floor with only a few dividers — the opposite feel from stage 7's
+  // dense pockets.
+  function buildMazeStage8() {
+    return carveFrom(Math.floor(M_COLS / 2), Math.floor(M_ROWS / 2), 0.55, null);
+  }
+
+  // Stage 9: asymmetric organic maze — a "growing tree" carve seeded from a
+  // random cell each time (no fixed corner/center/mirror symmetry) that
+  // mostly extends from the newest cell (tree-like corridors) but
+  // occasionally branches off an older, randomly-picked cell instead,
+  // producing an irregular mix of long runs and stubby side-branches.
+  function buildMazeStage9() {
+    const grid = Array.from({ length: ROWS }, () => Array(COLS).fill(1));
+    const visited = Array.from({ length: M_ROWS }, () => Array(M_COLS).fill(false));
+    const startCx = Math.floor(Math.random() * M_COLS);
+    const startCy = Math.floor(Math.random() * M_ROWS);
+    visited[startCy][startCx] = true;
+    grid[startCy * 2 + 1][startCx * 2 + 1] = 0;
+    const active = [[startCx, startCy]];
+    while (active.length) {
+      const idx = Math.random() < 0.7 ? active.length - 1 : Math.floor(Math.random() * active.length);
+      const [cx, cy] = active[idx];
+      const dirs = shuffle([[0, -1], [0, 1], [-1, 0], [1, 0]]);
+      let carved = false;
+      for (const [dx, dy] of dirs) {
+        const nx = cx + dx, ny = cy + dy;
+        if (nx >= 0 && nx < M_COLS && ny >= 0 && ny < M_ROWS && !visited[ny][nx]) {
+          visited[ny][nx] = true;
+          grid[cy * 2 + 1 + dy][cx * 2 + 1 + dx] = 0;
+          grid[ny * 2 + 1][nx * 2 + 1] = 0;
+          active.push([nx, ny]);
+          carved = true;
+          break;
+        }
+      }
+      if (!carved) active.splice(idx, 1);
+    }
+    braidPass(grid, 0.1);
+    return grid;
+  }
+
+  // Stage 10: checkerboard-block maze — instead of corridor-and-wall carving,
+  // the entire interior floor starts open and solid 1x1 pillar blocks are
+  // dropped in a checkerboard-spaced pattern (every cell whose maze-cell
+  // coords are BOTH even), a classic arcade "block maze" feel. Pillars are
+  // confined to the interior (never the outer ring, which stays a clean
+  // single frame). Spacing pillars 2 apart on both axes (rather than a
+  // literal 1-cell checkerboard) is deliberate: two pillars are never
+  // 4-adjacent to each other, so every pillar is an isolated single-cell
+  // hole in an otherwise fully-open floor and can never sever a path — a
+  // strict 1-cell checkerboard would instead turn every surviving cell's
+  // parity the same way as its neighbors, stranding each one alone with
+  // only its own dead-end connector nubs.
+  function buildMazeStage10() {
+    const grid = Array.from({ length: ROWS }, () => Array(COLS).fill(1));
+    for (let cy = 0; cy < M_ROWS; cy++) {
+      for (let cx = 0; cx < M_COLS; cx++) {
+        grid[cy * 2 + 1][cx * 2 + 1] = 0;
+        if (cx + 1 < M_COLS) grid[cy * 2 + 1][cx * 2 + 2] = 0;
+        if (cy + 1 < M_ROWS) grid[cy * 2 + 2][cx * 2 + 1] = 0;
+      }
+    }
+    for (let cy = 1; cy < M_ROWS - 1; cy++) {
+      for (let cx = 1; cx < M_COLS - 1; cx++) {
+        if (cx % 2 === 0 && cy % 2 === 0) grid[cy * 2 + 1][cx * 2 + 1] = 1;
+      }
+    }
+    return grid;
+  }
+
   function buildMazeForStage(stage) {
     if (stage <= 1) return buildMazeStage1();
     if (stage === 2) return buildMazeStage2();
-    return buildMazeStage3(); // stage 3, and the base for endless mode (4+)
+    if (stage === 3) return buildMazeStage3();
+    if (stage === 4) return buildMazeStage4();
+    if (stage === 5) return buildMazeStage5();
+    if (stage === 6) return buildMazeStage6();
+    if (stage === 7) return buildMazeStage7();
+    if (stage === 8) return buildMazeStage8();
+    if (stage === 9) return buildMazeStage9();
+    return buildMazeStage10(); // stage 10, and the base for endless mode (11+)
   }
 
   function isOpen(grid, col, row) {
@@ -97,71 +360,89 @@ function createMazeLevel(api) {
   const DIRS = [{ dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 }];
 
   // Ghost roster: the first two are the original stage-1 ghosts; the third
-  // and fourth are added in as stages 2 and 3 escalate the chase. All four
-  // spawn cells are guaranteed-open maze-cell centers (odd/odd grid coords)
-  // under every generator above (corner, center, and mirrored variants all
-  // produce a full spanning tree, so every cell center ends up carved).
+  // and fourth join in as stages 2 and 3 escalate the chase; the fifth joins
+  // at stage 7 as the hand-built stages keep escalating (see
+  // ghostCountForStage below). All five spawn cells are guaranteed-open
+  // maze-cell centers (odd/odd grid coords) under every generator above:
+  // stages 1-9 either carve every maze cell (corner, center, mirrored,
+  // spiral, rings, quadrant, dense-Prim's, sparse-braid and organic variants
+  // all produce a full spanning tree touching every cell) or, for stage 10's
+  // checkerboard pillars, land on a cell the pillar rule deliberately never
+  // blocks (every spawn has at least one odd maze-cell coordinate, or sits
+  // on the outer ring — a stage-10 pillar only ever lands on a cell whose
+  // coords are BOTH even and interior).
   const GHOST_ROSTER = [
     { spawn: [17, 1], color: '#ff4fa3', baseSpeed: 3.6 },
     { spawn: [9, 7], color: '#4fe3d0', baseSpeed: 3.7 },
     { spawn: [13, 7], color: '#ffb84f', baseSpeed: 3.9 },
     { spawn: [5, 7], color: '#b84fff', baseSpeed: 4.0 },
+    { spawn: [15, 5], color: '#4f8cff', baseSpeed: 4.1 },
   ];
 
-  // Stage-baseline speed multiplier: stages 1-3 step the ghosts up as more of
-  // them join the chase; stage 4+ ("endless") keeps stage 3's full roster but
-  // keeps scaling smoothly on top, capped so it never becomes unbeatable.
+  // Stage-baseline speed multiplier: stages 1-10 step the ghosts up smoothly
+  // as more of them join the chase and the hand-built stages get harder;
+  // stage 11+ ("endless") keeps stage 10's full roster but keeps scaling
+  // smoothly on top, capped so it never becomes unbeatable.
   //
   // Ghosts chase with a real (greedy-nearest) heuristic, not a random patrol,
   // so ghost speed relative to the player's fixed 4.4 cells/s matters a lot
-  // more here than a raw multiplier suggests. At stage 3's baseline (x1.25)
-  // the fastest ghost (baseSpeed 4.0) is already at 5.0, ~14% faster than the
-  // player — a fitting "hardest hand-built stage" bite. The old endless
-  // formula (rate 0.12, inner cap 2.4, outer cap 3.0) compounded on top of
-  // that and reached x3.0 by stage ~15, putting the fastest ghost at 12.0
-  // cells/s — 2.7x the player's speed before the within-stage "board is
-  // clearing out" ramp (up to another x1.35) pushes it past 3.6x. Combined
-  // with dead-end corridors, that's not "hard", it's uncatchable. Capping the
-  // endless scale at x1.6 (product x2.0) keeps the fastest ghost at ~1.8x
-  // player speed at the plateau (~2.45x during the endgame ramp), still a
-  // real threat but not a guaranteed corner, and reaches that plateau at
-  // stage ~15 so it keeps climbing through the whole endless range instead
-  // of flatlining by stage 6-7.
+  // more here than a raw multiplier suggests. At stage 10's baseline (x1.70)
+  // the fastest ghost (baseSpeed 4.1) is already at ~6.97, ~58% faster than
+  // the player — a fitting "hardest hand-built stage" bite. An earlier,
+  // unbounded endless formula compounded on top of a similar baseline and
+  // reached x3.0+ within a handful of endless stages, putting the fastest
+  // ghost at ~3.7x the player's speed once the within-stage "board is
+  // clearing out" ramp (up to another x1.35) is folded in. Combined with
+  // dead-end corridors, that's not "hard", it's uncatchable. Capping the
+  // endless scale so the product never exceeds x2.0 keeps the fastest ghost
+  // at ~1.86x player speed at the plateau (~2.5x during the endgame ramp),
+  // still a real threat but not a guaranteed corner, and reaches that
+  // plateau around stage ~15 so it keeps climbing through the whole endless
+  // range instead of flatlining right after stage 10.
+  const STAGE_SPEED_MULT = [1.00, 1.06, 1.12, 1.19, 1.27, 1.35, 1.44, 1.53, 1.62, 1.70];
   function stageSpeedMult(stage) {
-    if (stage <= 1) return 1;
-    if (stage === 2) return 1.12;
-    if (stage === 3) return 1.25;
-    const endlessScale = Math.min(1 + (stage - 3) * 0.05, 1.6);
-    return 1.25 * endlessScale;
+    const idx = Math.min(Math.max(stage, 1), HAND_BUILT_STAGES) - 1;
+    if (stage <= HAND_BUILT_STAGES) return STAGE_SPEED_MULT[idx];
+    const base = STAGE_SPEED_MULT[STAGE_SPEED_MULT.length - 1];
+    return Math.min(base * (1 + (stage - HAND_BUILT_STAGES) * 0.035), 2.0);
   }
 
   // Cheap per-stage palette shift for the wall blocks + backdrop — the maze
-  // shape itself already differs a lot stage to stage (corner-seeded, then
-  // center-seeded, then mirrored-symmetric), so this is just a light color
-  // wash on top of the existing wall/background draw calls (no new geometry)
-  // to reinforce "somewhere new", the same idea as the racing level's
-  // day/dusk/night themes. Stage 4+ (endless) reuses stage 3's palette, same
-  // as it reuses stage 3's ghost roster.
+  // shape itself already differs a lot stage to stage (corner-seeded,
+  // center-seeded, mirrored, spiral, rings, quadrant-mirrored, dense,
+  // sparse, organic, checkerboard-block), so this is just a light color wash
+  // on top of the existing wall/background draw calls (no new geometry) to
+  // reinforce "somewhere new", the same idea as the racing level's
+  // day/dusk/night themes. Stage 11+ (endless) reuses stage 10's palette,
+  // same as it reuses stage 10's maze generator and ghost roster.
   const STAGE_THEMES = [
-    { bg: '#050510', wall: '#2a2f6d' },
-    { bg: '#120616', wall: '#5a2f6d' },
-    { bg: '#03120c', wall: '#1f6d4a' },
+    { bg: '#050510', wall: '#2a2f6d' }, // 1: corner-seeded — cool blue
+    { bg: '#120616', wall: '#5a2f6d' }, // 2: center-seeded — violet
+    { bg: '#03120c', wall: '#1f6d4a' }, // 3: mirrored — green
+    { bg: '#020e12', wall: '#1f5a6d' }, // 4: spiral corridor — teal/cyan
+    { bg: '#160d02', wall: '#6d4a1f' }, // 5: concentric rings — amber
+    { bg: '#170305', wall: '#6d1f2f' }, // 6: 4 mirrored quadrants — crimson
+    { bg: '#0a0d12', wall: '#3a4a5e' }, // 7: dense small-cell — slate steel
+    { bg: '#0a0620', wall: '#3f2f8a' }, // 8: sparse open — deep indigo
+    { bg: '#0d1204', wall: '#4a5e1f' }, // 9: asymmetric organic — moss olive
+    { bg: '#170216', wall: '#6d1f5a' }, // 10: checkerboard-block — magenta
   ];
-  function themeForStage(stage) { return STAGE_THEMES[Math.min(Math.max(stage, 1), 3) - 1]; }
+  function themeForStage(stage) { return STAGE_THEMES[Math.min(Math.max(stage, 1), HAND_BUILT_STAGES) - 1]; }
 
+  const GHOST_COUNT_BY_STAGE = [2, 3, 4, 4, 4, 4, 5, 5, 5, 5];
   function ghostCountForStage(stage) {
-    if (stage <= 1) return 2;
-    if (stage === 2) return 3;
-    return 4; // stage 3, and endless mode reuses stage 3's full roster
+    const idx = Math.min(Math.max(stage, 1), HAND_BUILT_STAGES) - 1;
+    return GHOST_COUNT_BY_STAGE[idx]; // stage 11+ (endless) reuses stage 10's full roster
   }
 
   // How much of the within-stage "board is clearing out" ramp applies (see
   // update() below) — kept as a baseline stages layer on top of, not replace.
+  const BASE_WANDER_BY_STAGE = [0.25, 0.225, 0.20, 0.175, 0.15, 0.13, 0.11, 0.09, 0.07, 0.06];
   function baseWanderChance(stage) {
-    if (stage <= 1) return 0.25;
-    if (stage === 2) return 0.20;
-    if (stage === 3) return 0.15;
-    return Math.max(0.06, 0.15 - (stage - 3) * 0.01);
+    const idx = Math.min(Math.max(stage, 1), HAND_BUILT_STAGES) - 1;
+    if (stage <= HAND_BUILT_STAGES) return BASE_WANDER_BY_STAGE[idx];
+    const base = BASE_WANDER_BY_STAGE[BASE_WANDER_BY_STAGE.length - 1];
+    return Math.max(0.05, base - (stage - HAND_BUILT_STAGES) * 0.005);
   }
 
   // Movement uses a cell + progress-fraction model: a mover sits at (col,row)
@@ -233,6 +514,7 @@ function createMazeLevel(api) {
         dots.delete('9,7');
         dots.delete('13,7');
         dots.delete('5,7');
+        dots.delete('15,5');
 
         powerPellets = new Set();
         POWER_CELLS.forEach(([c, r]) => {

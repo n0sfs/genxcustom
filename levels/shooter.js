@@ -5,43 +5,62 @@ function createShooterLevel(api) {
 
   let player, bullets, enemyBullets, enemies, enemyDir, enemyStepTimer;
   let shotCooldown, hitFlash, invuln, particles, ufo, ufoTimer, popups, bunkers, stars, combo;
-  let cfg, rows, cols, gridW, startX;
+  let cfg, rows, cols, gridW, startX, totalEnemies;
   const UFO_SCORES = [50, 50, 100, 100, 150, 300];
 
-  // Three hand-built stages: stage 2 is a noticeably bigger/denser formation
-  // with a faster descent and more frequent UFOs; stage 3 bigger/faster still,
-  // plus an extra row and tougher (2-hit) bunkers. Stage 4+ ("endless mode")
-  // scales stage 3's setup smoothly with `stage`, capped so it stays winnable.
-  // Each stage also tints the background nebula a different hue (cheap, just
-  // gradient stops) so a new stage reads as "a new sector" the way racing.js
-  // shifts day->dusk->night; endless mode keeps stage 3's tint.
+  // Ten hand-built stages: each escalates formation size, descent speed, UFO
+  // frequency, fire rate and bunker toughness over the last. From stage 5 on,
+  // `shape` swaps the plain rectangle for a different formation silhouette
+  // (a gap down the middle, a diamond, two flanking squads) so the later
+  // stages read as genuinely different waves, not just "more of the same
+  // rectangle." Stage 10 is the boss-tier wave: dense, fast, relentless.
+  // Stage 11+ ("endless mode") scales stage 10's setup smoothly with `stage`,
+  // capped so it stays winnable. Each stage also tints the background nebula
+  // a different hue (cheap, just gradient stops) so a new stage reads as "a
+  // new sector" the way racing.js shifts day->dusk->night; endless mode keeps
+  // stage 10's tint.
   const STAGE_CONFIGS = {
-    1: { rows: 4, cols: 8, stepInterval: 0.5, dropDy: 14, ufoMin: 6, ufoMax: 11, fireRateMult: 1, bunkerHp: 1, theme: 'void' },
-    2: { rows: 5, cols: 9, stepInterval: 0.42, dropDy: 16, ufoMin: 4, ufoMax: 8, fireRateMult: 1.3, bunkerHp: 1, theme: 'crimson' },
-    3: { rows: 6, cols: 10, stepInterval: 0.34, dropDy: 18, ufoMin: 3, ufoMax: 6, fireRateMult: 1.6, bunkerHp: 2, theme: 'venom' },
+    1: { rows: 4, cols: 8, stepInterval: 0.5, dropDy: 14, ufoMin: 6, ufoMax: 11, fireRateMult: 1, bunkerHp: 1, theme: 'void', shape: 'rect' },
+    2: { rows: 5, cols: 9, stepInterval: 0.42, dropDy: 16, ufoMin: 4, ufoMax: 8, fireRateMult: 1.3, bunkerHp: 1, theme: 'crimson', shape: 'rect' },
+    3: { rows: 6, cols: 10, stepInterval: 0.34, dropDy: 18, ufoMin: 3, ufoMax: 6, fireRateMult: 1.6, bunkerHp: 2, theme: 'venom', shape: 'rect' },
+    4: { rows: 6, cols: 11, stepInterval: 0.31, dropDy: 19, ufoMin: 2.6, ufoMax: 5.5, fireRateMult: 1.9, bunkerHp: 2, theme: 'amber', shape: 'rect' },
+    5: { rows: 7, cols: 11, stepInterval: 0.28, dropDy: 20, ufoMin: 2.3, ufoMax: 5.0, fireRateMult: 2.15, bunkerHp: 2, theme: 'azure', shape: 'gap' },
+    6: { rows: 7, cols: 12, stepInterval: 0.26, dropDy: 21, ufoMin: 2.1, ufoMax: 4.6, fireRateMult: 2.4, bunkerHp: 3, theme: 'violet', shape: 'diamond' },
+    7: { rows: 8, cols: 12, stepInterval: 0.24, dropDy: 22, ufoMin: 1.9, ufoMax: 4.2, fireRateMult: 2.65, bunkerHp: 3, theme: 'solar', shape: 'flanks' },
+    8: { rows: 8, cols: 13, stepInterval: 0.22, dropDy: 23, ufoMin: 1.7, ufoMax: 3.8, fireRateMult: 2.9, bunkerHp: 3, theme: 'frost', shape: 'rect' },
+    9: { rows: 9, cols: 13, stepInterval: 0.20, dropDy: 24, ufoMin: 1.55, ufoMax: 3.4, fireRateMult: 3.2, bunkerHp: 4, theme: 'inferno', shape: 'diamond' },
+    10: { rows: 9, cols: 14, stepInterval: 0.18, dropDy: 26, ufoMin: 1.4, ufoMax: 3.0, fireRateMult: 3.6, bunkerHp: 4, theme: 'apex', shape: 'rect' },
   };
 
   const NEBULA_THEMES = {
     void: ['#0a0a1e', '#120a1c', '#05060a'],
     crimson: ['#1e0a12', '#220a1e', '#06050a'],
     venom: ['#07160f', '#0a1e2a', '#05080a'],
+    amber: ['#1e1608', '#2a1a06', '#0a0704'],
+    azure: ['#071626', '#0a1e3a', '#040a14'],
+    violet: ['#160a26', '#1e0a3a', '#0a0514'],
+    solar: ['#261007', '#3a1206', '#140603'],
+    frost: ['#0a1e26', '#0a2e3a', '#040e14'],
+    inferno: ['#260a05', '#3a0f06', '#140503'],
+    apex: ['#260a1e', '#3a0a2a', '#14050f'],
   };
 
   function getStageConfig(stage) {
     const s = Math.max(1, Math.floor(stage) || 1);
-    if (s <= 3) return STAGE_CONFIGS[s];
-    const scale = Math.min(2.6, 1 + (s - 3) * 0.12);
-    const s3 = STAGE_CONFIGS[3];
+    if (s <= 10) return STAGE_CONFIGS[s];
+    const scale = Math.min(2.6, 1 + (s - 10) * 0.12);
+    const s10 = STAGE_CONFIGS[10];
     return {
-      rows: s3.rows,
-      cols: s3.cols,
-      stepInterval: Math.max(0.14, s3.stepInterval / scale),
-      dropDy: s3.dropDy * Math.min(1.6, scale),
-      ufoMin: Math.max(1.2, s3.ufoMin / scale),
-      ufoMax: Math.max(2.5, s3.ufoMax / scale),
-      fireRateMult: s3.fireRateMult * scale,
-      bunkerHp: s3.bunkerHp,
-      theme: s3.theme,
+      rows: s10.rows,
+      cols: s10.cols,
+      stepInterval: Math.max(0.14, s10.stepInterval / scale),
+      dropDy: s10.dropDy * Math.min(1.6, scale),
+      ufoMin: Math.max(1.2, s10.ufoMin / scale),
+      ufoMax: Math.max(2.5, s10.ufoMax / scale),
+      fireRateMult: s10.fireRateMult * scale,
+      bunkerHp: s10.bunkerHp,
+      theme: s10.theme,
+      shape: s10.shape,
     };
   }
 
@@ -122,12 +141,43 @@ function createShooterLevel(api) {
     ['.XXXXX.', 'XXXXXXX', 'XX.X.XX', '.X...X.', 'X.....X'],
   ];
 
+  // Masks out grid cells so higher stages can read as a genuinely different
+  // formation silhouette instead of just a bigger rectangle: 'gap' opens a
+  // short canyon through the middle rows, 'diamond' rounds the whole block
+  // into a diamond, 'flanks' splits it into two separated squads.
+  function isCellActive(shape, r, c, rows, cols) {
+    switch (shape) {
+      case 'gap': {
+        const midRow0 = Math.floor((rows - 1) / 2) - 1;
+        const midRow1 = midRow0 + 2;
+        const gapCol0 = Math.floor(cols / 2) - 1;
+        const gapCol1 = gapCol0 + 1;
+        return !(r >= midRow0 && r <= midRow1 && c >= gapCol0 && c <= gapCol1);
+      }
+      case 'diamond': {
+        const cx = (cols - 1) / 2, cy = (rows - 1) / 2;
+        const nx = cx > 0 ? Math.abs(c - cx) / cx : 0;
+        const ny = cy > 0 ? Math.abs(r - cy) / cy : 0;
+        return nx + ny <= 1.08;
+      }
+      case 'flanks': {
+        const gapStart = Math.floor(cols * 0.38);
+        const gapEnd = Math.ceil(cols * 0.62) - 1;
+        return c < gapStart || c > gapEnd;
+      }
+      default:
+        return true;
+    }
+  }
+
   function spawnEnemies() {
     gridW = cols * (ENEMY_W + GAP) - GAP;
     startX = (W - gridW) / 2;
     enemies = [];
+    const shape = cfg.shape || 'rect';
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
+        if (!isCellActive(shape, r, c, rows, cols)) continue;
         enemies.push({
           x: startX + c * (ENEMY_W + GAP),
           y: 40 + r * (ENEMY_H + GAP),
@@ -138,6 +188,7 @@ function createShooterLevel(api) {
         });
       }
     }
+    totalEnemies = enemies.length;
   }
 
   function drawInvader(ctx, e) {
@@ -206,7 +257,7 @@ function createShooterLevel(api) {
       // rate scale off the same curve, so the last few invaders stay tense
       // instead of the fight fizzling out once most of the wave is dead. This
       // within-stage ramp layers on top of the stage's own baseline pace.
-      const pressureFactor = 1 + (1 - aliveEnemies.length / (rows * cols)) * 2.2;
+      const pressureFactor = 1 + (1 - aliveEnemies.length / totalEnemies) * 2.2;
       enemyStepTimer += dt * pressureFactor;
       const stepInterval = cfg.stepInterval;
       let edgeHit = false;

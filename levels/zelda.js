@@ -171,44 +171,385 @@ function createZeldaLevel(api) {
     theme: 'ember',
   };
 
+  // Stage 4: Frostbound Corridor — a single narrow winding path. Comb-style
+  // teeth alternately jut from the top and bottom of each room, forcing an
+  // S-shaped route instead of an open room, and both connecting doorways
+  // are single narrow slits rather than the wider gaps of stages 1-3.
+  const STAGE_4 = {
+    walls: buildWalls(
+      [[370, 450]],
+      [[900, 980]],
+      [
+        { x: 170, y: 24, w: 24, h: 300 },
+        { x: 340, y: 168, w: 24, h: 300 },
+        { x: 500, y: 24, w: 24, h: 330 },
+        { x: 800, y: 24, w: 24, h: 290 },
+        { x: 980, y: 168, w: 24, h: 300 },
+        { x: 300, y: ROOM_H + 60, w: 24, h: 260 },
+        { x: 520, y: ROOM_H + 240, w: 220, h: 24 },
+      ]
+    ),
+    enemies: [
+      { type: 'chaser', x: 230, y: 120, dx: 1, dy: 0 },
+      { type: 'shooter', x: 260, y: 380, fireTimer: 1.0 },
+      { type: 'chaser', x: 420, y: 400, dx: 0, dy: -1 },
+      { type: 'shooter', x: 560, y: 150, fireTimer: 1.4 },
+      { type: 'chaser', x: ROOM_W + 120, y: 380, dx: 1, dy: 0 },
+      { type: 'shooter', x: ROOM_W + 250, y: 120, fireTimer: 1.2 },
+      { type: 'chaser', x: ROOM_W + 430, y: 200, dx: 0, dy: 1 },
+      { type: 'shooter', x: ROOM_W + 560, y: 380, fireTimer: 0.9 },
+      { type: 'chaser', x: 210, y: ROOM_H + 380, dx: 1, dy: 0 },
+      { type: 'shooter', x: ROOM_W + 200, y: ROOM_H + 320, fireTimer: 1.1 },
+      { type: 'chaser', x: ROOM_W + 480, y: ROOM_H + 180, dx: 0, dy: 1 },
+    ],
+    bossHp: 9,
+    bossChargeNormal: 325, bossChargeEnraged: 375,
+    bossSpreadNormal: [-0.55, -0.28, 0, 0.28, 0.55],
+    bossSpreadEnraged: [-0.65, -0.43, -0.22, 0, 0.22, 0.43, 0.65],
+    bossExtraBurst: true, bossBurstCount: 14, bossShotSpeed: 210,
+    enemySpeedMul: 1.65, enemyFireMul: 0.62,
+    theme: 'ice',
+  };
+
+  // Stage 5: Sunken Ruins — a multi-room layout with a small enclosed vault
+  // chamber (four walls and a single narrow doorway slit) tucked off the
+  // main route, guarded by its own pair of shooters, giving a simplified
+  // "locked room" feel without an actual key/lock mechanic.
+  const STAGE_5 = {
+    walls: buildWalls(
+      [[120, 180], [380, 440]],
+      [[260, 320]],
+      [
+        { x: 900, y: 100, w: 200, h: 24 },
+        { x: 900, y: 236, w: 200, h: 24 },
+        { x: 1076, y: 100, w: 24, h: 160 },
+        { x: 900, y: 100, w: 24, h: 50 },
+        { x: 900, y: 210, w: 24, h: 50 },
+        { x: 220, y: 150, w: 36, h: 36 },
+        { x: 480, y: 350, w: 36, h: 36 },
+        { x: 150, y: ROOM_H + 250, w: 36, h: 36 },
+        { x: ROOM_W + 480, y: ROOM_H + 300, w: 36, h: 36 },
+      ]
+    ),
+    enemies: [
+      { type: 'shooter', x: 950, y: 140, fireTimer: 1.0 },
+      { type: 'shooter', x: 1020, y: 190, fireTimer: 1.3 },
+      { type: 'chaser', x: 220, y: 200, dx: 1, dy: 0 },
+      { type: 'shooter', x: 480, y: 150, fireTimer: 1.5 },
+      { type: 'chaser', x: 400, y: 380, dx: 0, dy: -1 },
+      { type: 'chaser', x: ROOM_W + 200, y: 350, dx: -1, dy: 0 },
+      { type: 'shooter', x: ROOM_W + 300, y: 250, fireTimer: 1.1 },
+      { type: 'chaser', x: 200, y: ROOM_H + 200, dx: 1, dy: 0 },
+      { type: 'shooter', x: 350, y: ROOM_H + 350, fireTimer: 1.4 },
+      { type: 'chaser', x: ROOM_W + 250, y: ROOM_H + 180, dx: 0, dy: 1 },
+      { type: 'shooter', x: ROOM_W + 420, y: ROOM_H + 380, fireTimer: 0.9 },
+      { type: 'chaser', x: ROOM_W + 520, y: ROOM_H + 150, dx: 0, dy: -1 },
+    ],
+    bossHp: 10,
+    bossChargeNormal: 335, bossChargeEnraged: 390,
+    bossSpreadNormal: [-0.6, -0.36, -0.12, 0.12, 0.36, 0.6],
+    bossSpreadEnraged: [-0.7, -0.5, -0.3, -0.1, 0.1, 0.3, 0.5, 0.7],
+    bossExtraBurst: true, bossBurstCount: 16, bossShotSpeed: 218,
+    enemySpeedMul: 1.8, enemyFireMul: 0.56,
+    theme: 'ruins',
+  };
+
+  // Stage 6: Shadow Arena — the two dividing walls collapse to thin end-caps,
+  // turning the whole 2x2 footprint into one big open arena, with scattered
+  // pillars for cover instead of corridors. Long sightlines make the boss's
+  // charge much more threatening here than in a corridor stage.
+  const STAGE_6 = {
+    walls: buildWalls(
+      [[40, WORLD_H - 40]],
+      [[40, WORLD_W - 40]],
+      [
+        { x: 260, y: 180, w: 36, h: 36 },
+        { x: 460, y: 320, w: 36, h: 36 },
+        { x: 200, y: 360, w: 36, h: 36 },
+        { x: ROOM_W + 180, y: 160, w: 36, h: 36 },
+        { x: ROOM_W + 380, y: 320, w: 36, h: 36 },
+        { x: ROOM_W + 520, y: 200, w: 36, h: 36 },
+        { x: 220, y: ROOM_H + 180, w: 36, h: 36 },
+        { x: 420, y: ROOM_H + 340, w: 36, h: 36 },
+        { x: ROOM_W + 260, y: ROOM_H + 200, w: 36, h: 36 },
+        { x: ROOM_W + 460, y: ROOM_H + 380, w: 36, h: 36 },
+      ]
+    ),
+    enemies: [
+      { type: 'chaser', x: 220, y: 150, dx: 1, dy: 0 },
+      { type: 'chaser', x: 380, y: 300, dx: 0, dy: 1 },
+      { type: 'shooter', x: 500, y: 180, fireTimer: 1.2 },
+      { type: 'chaser', x: 150, y: 380, dx: 1, dy: 0 },
+      { type: 'shooter', x: ROOM_W + 150, y: 250, fireTimer: 1.0 },
+      { type: 'chaser', x: ROOM_W + 300, y: 150, dx: 0, dy: 1 },
+      { type: 'chaser', x: ROOM_W + 450, y: 350, dx: -1, dy: 0 },
+      { type: 'shooter', x: ROOM_W + 560, y: 250, fireTimer: 1.5 },
+      { type: 'chaser', x: 250, y: ROOM_H + 150, dx: 1, dy: 0 },
+      { type: 'shooter', x: 400, y: ROOM_H + 300, fireTimer: 1.3 },
+      { type: 'chaser', x: ROOM_W + 200, y: ROOM_H + 180, dx: 0, dy: 1 },
+      { type: 'chaser', x: ROOM_W + 380, y: ROOM_H + 330, dx: 0, dy: -1 },
+      { type: 'shooter', x: ROOM_W + 520, y: ROOM_H + 200, fireTimer: 0.9 },
+    ],
+    bossHp: 11,
+    bossChargeNormal: 345, bossChargeEnraged: 400,
+    bossSpreadNormal: [-0.62, -0.37, -0.12, 0.12, 0.37, 0.62],
+    bossSpreadEnraged: [-0.72, -0.51, -0.3, -0.1, 0.1, 0.3, 0.51, 0.72],
+    bossExtraBurst: true, bossBurstCount: 17, bossShotSpeed: 226,
+    enemySpeedMul: 1.95, enemyFireMul: 0.52,
+    theme: 'shadow',
+  };
+
+  // Stage 7: Twin Causeways — a long partial wall splits each top room into
+  // an upper and a lower lane for most of its width (open only at the two
+  // ends), so the two lanes visibly separate then reconverge before each
+  // doorway, instead of a single shared route.
+  const STAGE_7 = {
+    walls: buildWalls(
+      [[200, 280]],
+      [[560, 640]],
+      [
+        { x: 60, y: 244, w: 480, h: 24 },
+        { x: 700, y: 244, w: 480, h: 24 },
+        { x: 300, y: 100, w: 32, h: 32 },
+        { x: 300, y: 380, w: 32, h: 32 },
+        { x: ROOM_W + 380, y: 100, w: 32, h: 32 },
+        { x: ROOM_W + 380, y: 380, w: 32, h: 32 },
+        { x: 200, y: ROOM_H + 200, w: 32, h: 32 },
+        { x: ROOM_W + 450, y: ROOM_H + 300, w: 32, h: 32 },
+      ]
+    ),
+    enemies: [
+      { type: 'chaser', x: 150, y: 120, dx: 1, dy: 0 },
+      { type: 'chaser', x: 150, y: 380, dx: 1, dy: 0 },
+      { type: 'shooter', x: 350, y: 120, fireTimer: 1.1 },
+      { type: 'shooter', x: 350, y: 380, fireTimer: 1.3 },
+      { type: 'chaser', x: ROOM_W + 150, y: 120, dx: -1, dy: 0 },
+      { type: 'chaser', x: ROOM_W + 150, y: 380, dx: -1, dy: 0 },
+      { type: 'shooter', x: ROOM_W + 450, y: 120, fireTimer: 1.0 },
+      { type: 'shooter', x: ROOM_W + 450, y: 380, fireTimer: 1.4 },
+      { type: 'chaser', x: 200, y: ROOM_H + 180, dx: 0, dy: 1 },
+      { type: 'shooter', x: 400, y: ROOM_H + 350, fireTimer: 1.2 },
+      { type: 'chaser', x: ROOM_W + 250, y: ROOM_H + 200, dx: 0, dy: -1 },
+      { type: 'shooter', x: ROOM_W + 400, y: ROOM_H + 350, fireTimer: 0.9 },
+      { type: 'chaser', x: ROOM_W + 500, y: ROOM_H + 150, dx: 0, dy: 1 },
+      { type: 'chaser', x: 300, y: ROOM_H + 300, dx: 1, dy: 0 },
+    ],
+    bossHp: 12,
+    bossChargeNormal: 355, bossChargeEnraged: 412,
+    bossSpreadNormal: [-0.68, -0.45, -0.23, 0, 0.23, 0.45, 0.68],
+    bossSpreadEnraged: [-0.78, -0.58, -0.39, -0.19, 0, 0.19, 0.39, 0.58, 0.78],
+    bossExtraBurst: true, bossBurstCount: 18, bossShotSpeed: 234,
+    enemySpeedMul: 2.1, enemyFireMul: 0.48,
+    theme: 'toxic',
+  };
+
+  // Stage 8: Storm Bastion — two small enclosed vault chambers (one in the
+  // starting room, one near the goal room) each with their own guardians,
+  // plus a single winding tooth baffle, for the densest, most fortress-like
+  // layout yet.
+  const STAGE_8 = {
+    walls: buildWalls(
+      [[100, 160], [420, 480]],
+      [[300, 360]],
+      [
+        { x: 460, y: 60, w: 140, h: 24 },
+        { x: 460, y: 166, w: 140, h: 24 },
+        { x: 576, y: 60, w: 24, h: 130 },
+        { x: 460, y: 84, w: 24, h: 26 },
+        { x: 460, y: 150, w: 24, h: 16 },
+        { x: 680, y: ROOM_H + 300, w: 160, h: 24 },
+        { x: 680, y: ROOM_H + 406, w: 160, h: 24 },
+        { x: 680, y: ROOM_H + 300, w: 24, h: 130 },
+        { x: 816, y: ROOM_H + 300, w: 24, h: 50 },
+        { x: 816, y: ROOM_H + 390, w: 24, h: 16 },
+        { x: 900, y: 24, w: 24, h: 280 },
+      ]
+    ),
+    enemies: [
+      { type: 'shooter', x: 500, y: 110, fireTimer: 1.0 },
+      { type: 'shooter', x: 540, y: 140, fireTimer: 1.3 },
+      { type: 'chaser', x: 720, y: ROOM_H + 320, dx: 1, dy: 0 },
+      { type: 'chaser', x: 760, y: ROOM_H + 350, dx: 0, dy: -1 },
+      { type: 'chaser', x: 200, y: 150, dx: 1, dy: 0 },
+      { type: 'shooter', x: 300, y: 380, fireTimer: 1.2 },
+      { type: 'chaser', x: 150, y: 380, dx: 1, dy: 0 },
+      { type: 'shooter', x: ROOM_W + 150, y: 150, fireTimer: 1.1 },
+      { type: 'chaser', x: ROOM_W + 300, y: 380, dx: 0, dy: 1 },
+      { type: 'shooter', x: ROOM_W + 500, y: 250, fireTimer: 1.4 },
+      { type: 'chaser', x: 200, y: ROOM_H + 180, dx: 1, dy: 0 },
+      { type: 'shooter', x: 400, y: ROOM_H + 350, fireTimer: 0.9 },
+      { type: 'chaser', x: ROOM_W + 250, y: ROOM_H + 180, dx: 0, dy: -1 },
+      { type: 'shooter', x: ROOM_W + 500, y: ROOM_H + 150, fireTimer: 1.0 },
+      { type: 'chaser', x: ROOM_W + 450, y: ROOM_H + 380, dx: 0, dy: 1 },
+    ],
+    bossHp: 13,
+    bossChargeNormal: 365, bossChargeEnraged: 422,
+    bossSpreadNormal: [-0.7, -0.47, -0.23, 0, 0.23, 0.47, 0.7],
+    bossSpreadEnraged: [-0.8, -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6, 0.8],
+    bossExtraBurst: true, bossBurstCount: 19, bossShotSpeed: 242,
+    enemySpeedMul: 2.25, enemyFireMul: 0.44,
+    theme: 'storm',
+  };
+
+  // Stage 9: Crimson Sanctum — near-fully-open arena (like stage 6) but with
+  // a deliberate hexagonal ring of six pillars surrounding the boss's throne
+  // spot, so the final fight before the endgame stage has real cover to
+  // break the boss's sightline instead of a bare room.
+  const STAGE_9 = {
+    walls: buildWalls(
+      [[60, WORLD_H - 60]],
+      [[60, WORLD_W - 60]],
+      [
+        { x: 800, y: 560, w: 32, h: 32 },
+        { x: 800, y: 700, w: 32, h: 32 },
+        { x: 1080, y: 560, w: 32, h: 32 },
+        { x: 1080, y: 700, w: 32, h: 32 },
+        { x: 940, y: 520, w: 32, h: 32 },
+        { x: 940, y: 840, w: 32, h: 32 },
+        { x: 250, y: 180, w: 36, h: 36 },
+        { x: 450, y: 320, w: 36, h: 36 },
+        { x: ROOM_W + 200, y: 200, w: 36, h: 36 },
+        { x: ROOM_W + 420, y: 320, w: 36, h: 36 },
+        { x: 250, y: ROOM_H + 180, w: 36, h: 36 },
+        { x: 450, y: ROOM_H + 320, w: 36, h: 36 },
+      ]
+    ),
+    enemies: [
+      { type: 'chaser', x: 200, y: 150, dx: 1, dy: 0 },
+      { type: 'chaser', x: 400, y: 300, dx: 0, dy: 1 },
+      { type: 'shooter', x: 550, y: 180, fireTimer: 1.1 },
+      { type: 'chaser', x: 150, y: 380, dx: 1, dy: 0 },
+      { type: 'chaser', x: 350, y: 150, dx: 0, dy: 1 },
+      { type: 'shooter', x: ROOM_W + 150, y: 250, fireTimer: 1.0 },
+      { type: 'chaser', x: ROOM_W + 300, y: 150, dx: 0, dy: 1 },
+      { type: 'chaser', x: ROOM_W + 450, y: 350, dx: -1, dy: 0 },
+      { type: 'shooter', x: ROOM_W + 560, y: 250, fireTimer: 1.4 },
+      { type: 'chaser', x: 250, y: ROOM_H + 150, dx: 1, dy: 0 },
+      { type: 'shooter', x: 400, y: ROOM_H + 300, fireTimer: 1.3 },
+      { type: 'chaser', x: ROOM_W + 200, y: ROOM_H + 180, dx: 0, dy: 1 },
+      { type: 'chaser', x: ROOM_W + 380, y: ROOM_H + 330, dx: 0, dy: -1 },
+      { type: 'shooter', x: ROOM_W + 520, y: ROOM_H + 200, fireTimer: 0.9 },
+      { type: 'chaser', x: 700, y: ROOM_H + 250, dx: 1, dy: 0 },
+      { type: 'chaser', x: 1100, y: ROOM_H + 300, dx: -1, dy: 0 },
+    ],
+    bossHp: 14,
+    bossChargeNormal: 375, bossChargeEnraged: 432,
+    bossSpreadNormal: [-0.72, -0.51, -0.31, -0.1, 0.1, 0.31, 0.51, 0.72],
+    bossSpreadEnraged: [-0.85, -0.66, -0.47, -0.28, -0.09, 0.09, 0.28, 0.47, 0.66, 0.85],
+    bossExtraBurst: true, bossBurstCount: 19, bossShotSpeed: 250,
+    enemySpeedMul: 2.4, enemyFireMul: 0.4,
+    theme: 'crimson',
+  };
+
+  // Stage 10: Void Throne — the final hand-built dungeon. A two-lane winding
+  // entrance (like stage 4, mirrored) feeds into a grand throne room ringed
+  // by eight pillars (a denser version of stage 9's ring), with the largest
+  // enemy roster and the richest boss pattern of the run: wide alternating
+  // spreads, a big radial burst, and the fastest telegraphed charge.
+  const STAGE_10 = {
+    walls: buildWalls(
+      [[150, 210], [380, 440]],
+      [[520, 600]],
+      [
+        { x: 220, y: 168, w: 24, h: 300 },
+        { x: 420, y: 24, w: 24, h: 300 },
+        { x: 820, y: 168, w: 24, h: 300 },
+        { x: 1020, y: 24, w: 24, h: 300 },
+        { x: 1084, y: 638, w: 32, h: 32 },
+        { x: 1043, y: 737, w: 32, h: 32 },
+        { x: 944, y: 778, w: 32, h: 32 },
+        { x: 845, y: 737, w: 32, h: 32 },
+        { x: 804, y: 638, w: 32, h: 32 },
+        { x: 845, y: 539, w: 32, h: 32 },
+        { x: 944, y: 498, w: 32, h: 32 },
+        { x: 1043, y: 539, w: 32, h: 32 },
+        { x: 300, y: ROOM_H + 150, w: 36, h: 36 },
+        { x: ROOM_W + 380, y: ROOM_H + 150, w: 36, h: 36 },
+      ]
+    ),
+    enemies: [
+      { type: 'chaser', x: 150, y: 340, dx: 1, dy: 0 },
+      { type: 'shooter', x: 300, y: 120, fireTimer: 1.0 },
+      { type: 'chaser', x: 480, y: 380, dx: 0, dy: -1 },
+      { type: 'shooter', x: 560, y: 200, fireTimer: 1.3 },
+      { type: 'chaser', x: ROOM_W + 150, y: 340, dx: 1, dy: 0 },
+      { type: 'shooter', x: ROOM_W + 300, y: 120, fireTimer: 1.1 },
+      { type: 'chaser', x: ROOM_W + 480, y: 380, dx: 0, dy: 1 },
+      { type: 'shooter', x: ROOM_W + 560, y: 200, fireTimer: 1.4 },
+      { type: 'chaser', x: 200, y: ROOM_H + 200, dx: 1, dy: 0 },
+      { type: 'shooter', x: 400, y: ROOM_H + 350, fireTimer: 0.9 },
+      { type: 'chaser', x: 750, y: ROOM_H + 200, dx: 1, dy: 0 },
+      { type: 'shooter', x: 1120, y: ROOM_H + 250, fireTimer: 1.2 },
+      { type: 'chaser', x: 820, y: ROOM_H + 400, dx: 0, dy: -1 },
+      { type: 'shooter', x: 1080, y: ROOM_H + 420, fireTimer: 1.0 },
+      { type: 'chaser', x: 900, y: ROOM_H + 80, dx: 1, dy: 0 },
+      { type: 'chaser', x: 1150, y: ROOM_H + 380, dx: -1, dy: 0 },
+      { type: 'shooter', x: 700, y: ROOM_H + 350, fireTimer: 1.5 },
+      { type: 'chaser', x: 1000, y: ROOM_H + 430, dx: 0, dy: -1 },
+    ],
+    bossHp: 16,
+    bossChargeNormal: 390, bossChargeEnraged: 445,
+    bossSpreadNormal: [-0.75, -0.53, -0.32, -0.1, 0.1, 0.32, 0.53, 0.75],
+    bossSpreadEnraged: [-0.9, -0.72, -0.54, -0.36, -0.18, 0, 0.18, 0.36, 0.54, 0.72, 0.9],
+    bossExtraBurst: true, bossBurstCount: 20, bossShotSpeed: 260,
+    enemySpeedMul: 2.55, enemyFireMul: 0.38,
+    theme: 'void',
+  };
+
   function getStageConfig(stage) {
     if (stage <= 1) return STAGE_1;
     if (stage === 2) return STAGE_2;
     if (stage === 3) return STAGE_3;
+    if (stage === 4) return STAGE_4;
+    if (stage === 5) return STAGE_5;
+    if (stage === 6) return STAGE_6;
+    if (stage === 7) return STAGE_7;
+    if (stage === 8) return STAGE_8;
+    if (stage === 9) return STAGE_9;
+    if (stage >= 10 && stage <= 10) return STAGE_10;
 
-    // Endless mode: reuse stage 3's dungeon and enemy layout untouched, and
+    // Endless mode: reuse stage 10's dungeon and enemy layout untouched, and
     // smoothly scale the numbers instead. Speed-ish stats get a gentler,
     // separately-capped multiplier than counts/aggression so the arena never
     // turns into an unreadable bullet-storm, and boss HP grows slower still
-    // so fights don't become endless damage-sponges.
-    const scale = Math.min(2.5, 1 + (stage - 3) * 0.12);
+    // so fights don't become endless damage-sponges. (Every hand-built stage
+    // 4-10's own numbers were kept at or below these same caps, so the
+    // transition into endless mode never dips below stage 10's toughness.)
+    const scale = Math.min(2.5, 1 + (stage - 10) * 0.12);
     const speedScale = Math.min(1.6, scale);
-    const hpScale = Math.min(1.8, 1 + (stage - 3) * 0.08);
+    const hpScale = Math.min(1.8, 1 + (stage - 10) * 0.08);
     return {
-      walls: STAGE_3.walls,
-      enemies: STAGE_3.enemies,
-      bossHp: Math.min(18, Math.round(STAGE_3.bossHp * hpScale)),
-      bossChargeNormal: Math.min(420, STAGE_3.bossChargeNormal * speedScale),
-      bossChargeEnraged: Math.min(480, STAGE_3.bossChargeEnraged * speedScale),
-      bossSpreadNormal: STAGE_3.bossSpreadNormal,
-      bossSpreadEnraged: STAGE_3.bossSpreadEnraged,
+      walls: STAGE_10.walls,
+      enemies: STAGE_10.enemies,
+      bossHp: Math.min(18, Math.round(STAGE_10.bossHp * hpScale)),
+      bossChargeNormal: Math.min(420, STAGE_10.bossChargeNormal * speedScale),
+      bossChargeEnraged: Math.min(480, STAGE_10.bossChargeEnraged * speedScale),
+      bossSpreadNormal: STAGE_10.bossSpreadNormal,
+      bossSpreadEnraged: STAGE_10.bossSpreadEnraged,
       bossExtraBurst: true,
-      bossBurstCount: Math.min(20, Math.round(STAGE_3.bossBurstCount * Math.min(1.8, scale))),
-      bossShotSpeed: Math.min(320, STAGE_3.bossShotSpeed * speedScale),
-      enemySpeedMul: Math.min(2.6, STAGE_3.enemySpeedMul * scale),
-      enemyFireMul: Math.max(0.35, STAGE_3.enemyFireMul / Math.min(1.8, scale)),
-      theme: STAGE_3.theme,
+      bossBurstCount: Math.min(20, Math.round(STAGE_10.bossBurstCount * Math.min(1.8, scale))),
+      bossShotSpeed: Math.min(320, STAGE_10.bossShotSpeed * speedScale),
+      enemySpeedMul: Math.min(2.6, STAGE_10.enemySpeedMul * scale),
+      enemyFireMul: Math.max(0.35, STAGE_10.enemyFireMul / Math.min(1.8, scale)),
+      theme: STAGE_10.theme,
     };
   }
 
   // Cheap per-stage lighting pass: same brick geometry, different palette,
   // so each stage's dungeon reads as "somewhere new" without redrawing
-  // anything. Endless mode reuses stage 3's (ember) theme since it reuses
-  // stage 3's layout wholesale.
+  // anything. Endless mode reuses stage 10's (void) theme since it reuses
+  // stage 10's layout wholesale.
   const THEMES = {
     stone: { floor: ['#463824', '#2e2414'], wall: '#6b4a2a', torch: [255, 200, 100], flameCore: '#fff6c8', flameMid: '#ffb347', flameEdge: '#c23c1a' },
     moss: { floor: ['#39402a', '#20261a'], wall: '#5a6a3a', torch: [220, 235, 130], flameCore: '#f4ffc8', flameMid: '#b8d24f', flameEdge: '#4a7a1a' },
     ember: { floor: ['#442418', '#26120c'], wall: '#7a3d28', torch: [255, 150, 70], flameCore: '#fff0c8', flameMid: '#ff8a3a', flameEdge: '#c21a1a' },
+    ice: { floor: ['#26384a', '#132030'], wall: '#3d6a8a', torch: [140, 220, 255], flameCore: '#eaffff', flameMid: '#7fd8ff', flameEdge: '#1a5a8a' },
+    ruins: { floor: ['#4a4030', '#241f16'], wall: '#8a7a4a', torch: [255, 225, 150], flameCore: '#fff8d8', flameMid: '#e0b860', flameEdge: '#8a5a1a' },
+    shadow: { floor: ['#241a30', '#120c1a'], wall: '#4a3a6a', torch: [180, 140, 255], flameCore: '#f0e0ff', flameMid: '#9a6adf', flameEdge: '#4a1a8a' },
+    toxic: { floor: ['#2c3a1a', '#161f0c'], wall: '#5a7a2a', torch: [190, 255, 90], flameCore: '#f0ffc0', flameMid: '#a8e030', flameEdge: '#3a7a10' },
+    storm: { floor: ['#22303a', '#101a20'], wall: '#3a5a6a', torch: [170, 190, 255], flameCore: '#e8f0ff', flameMid: '#7a90ff', flameEdge: '#2a2a8a' },
+    crimson: { floor: ['#3a1418', '#1a0608'], wall: '#7a2030', torch: [255, 110, 110], flameCore: '#fff0d8', flameMid: '#ff6a4a', flameEdge: '#8a0a1a' },
+    void: { floor: ['#160a24', '#08040f'], wall: '#4a1a6a', torch: [220, 140, 255], flameCore: '#ffffff', flameMid: '#c080ff', flameEdge: '#3a0a6a' },
   };
 
   let player, enemies, projectiles, camX, camY, goal, goalActive, particles, hearts, boss, bossSpawned, torchTime, killStreak, tookDamage;

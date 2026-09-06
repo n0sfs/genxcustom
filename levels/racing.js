@@ -8,40 +8,63 @@ function createRacingLevel(api) {
   const NEAR_MISS_GAP = 14;
   const CAR_COLORS = ['#ff4fa3', '#ffd24f', '#8f8fff', '#ff9a4f'];
 
-  // Three hand-built stages: each is a real jump in traffic density/speed, not a
-  // tweak. Stage 3 also swaps the road theme (night + rain) to sell "somewhere
-  // new". Stage 4+ ("endless mode") scales stage 3's setup smoothly with `stage`.
+  // Ten hand-built stages: each is a real jump in traffic density/speed, not a
+  // tweak, and each leg of the road trip swaps the theme to sell "somewhere
+  // new" (day -> dusk -> night -> storm -> dawn -> fog -> neon city -> desert
+  // -> blizzard -> a final rain-slicked neon redline run). Stage 11+
+  // ("endless mode") scales stage 10's setup smoothly with `stage`.
   const STAGE_CONFIGS = {
     1: { baseSpeed: 220, firstSpawnDelay: 0.8, spawnMax: 1.05, spawnMin: 0.45, spawnDistDivisor: 2600, distanceTarget: 1600, reachMultiplier: 1.15, theme: 'day' },
     2: { baseSpeed: 300, firstSpawnDelay: 0.55, spawnMax: 0.75, spawnMin: 0.32, spawnDistDivisor: 2200, distanceTarget: 2000, reachMultiplier: 1.05, theme: 'dusk' },
     3: { baseSpeed: 360, firstSpawnDelay: 0.4, spawnMax: 0.55, spawnMin: 0.24, spawnDistDivisor: 1800, distanceTarget: 2400, reachMultiplier: 0.98, theme: 'night' },
+    4: { baseSpeed: 410, firstSpawnDelay: 0.34, spawnMax: 0.46, spawnMin: 0.21, spawnDistDivisor: 1650, distanceTarget: 2800, reachMultiplier: 0.94, theme: 'storm' },
+    5: { baseSpeed: 450, firstSpawnDelay: 0.30, spawnMax: 0.40, spawnMin: 0.19, spawnDistDivisor: 1550, distanceTarget: 3100, reachMultiplier: 0.91, theme: 'dawn' },
+    6: { baseSpeed: 490, firstSpawnDelay: 0.27, spawnMax: 0.36, spawnMin: 0.17, spawnDistDivisor: 1450, distanceTarget: 3400, reachMultiplier: 0.89, theme: 'fog' },
+    7: { baseSpeed: 530, firstSpawnDelay: 0.24, spawnMax: 0.32, spawnMin: 0.16, spawnDistDivisor: 1350, distanceTarget: 3700, reachMultiplier: 0.88, theme: 'neon' },
+    8: { baseSpeed: 570, firstSpawnDelay: 0.22, spawnMax: 0.29, spawnMin: 0.15, spawnDistDivisor: 1250, distanceTarget: 4000, reachMultiplier: 0.87, theme: 'desert' },
+    9: { baseSpeed: 610, firstSpawnDelay: 0.20, spawnMax: 0.27, spawnMin: 0.14, spawnDistDivisor: 1150, distanceTarget: 4300, reachMultiplier: 0.86, theme: 'blizzard' },
+    10: { baseSpeed: 660, firstSpawnDelay: 0.18, spawnMax: 0.24, spawnMin: 0.13, spawnDistDivisor: 1050, distanceTarget: 4700, reachMultiplier: 0.85, theme: 'overdrive' },
   };
 
   const THEMES = {
-    day: { sky: ['#1e2a1e', '#141c14'], road: ['#3f3f4a', '#232328'], lane: 'rgba(255,255,255,0.5)', rain: false },
-    dusk: { sky: ['#3a2540', '#1a1020'], road: ['#4a3f4a', '#2a2028'], lane: 'rgba(255,220,160,0.55)', rain: false },
-    night: { sky: ['#0a0e1e', '#05060c'], road: ['#242a38', '#12151c'], lane: 'rgba(207,232,255,0.55)', rain: true },
+    day: { sky: ['#1e2a1e', '#141c14'], road: ['#3f3f4a', '#232328'], lane: 'rgba(255,255,255,0.5)', weather: null },
+    dusk: { sky: ['#3a2540', '#1a1020'], road: ['#4a3f4a', '#2a2028'], lane: 'rgba(255,220,160,0.55)', weather: null },
+    night: { sky: ['#0a0e1e', '#05060c'], road: ['#242a38', '#12151c'], lane: 'rgba(207,232,255,0.55)', weather: 'rain' },
+    // Heavier storm rain on a slick, near-black highway.
+    storm: { sky: ['#111a24', '#04070c'], road: ['#20262f', '#0e1116'], lane: 'rgba(160,200,255,0.5)', weather: 'rain', rainDensity: 30 },
+    // Sunrise breaking through a thin ground mist.
+    dawn: { sky: ['#4a3a3a', '#1f1418'], road: ['#4a3f3a', '#2a201c'], lane: 'rgba(255,225,180,0.55)', weather: 'fog', fogAlpha: 0.10 },
+    // Thick countryside fog, low visibility.
+    fog: { sky: ['#3a3f3d', '#1b1f1d'], road: ['#454a48', '#262a29'], lane: 'rgba(220,225,220,0.4)', weather: 'fog', fogAlpha: 0.22 },
+    // Neon-lit city night, magenta roadside signage.
+    neon: { sky: ['#1a0a2e', '#05020a'], road: ['#2a1a3a', '#140a1e'], lane: 'rgba(0,255,220,0.6)', weather: null, roadsideColor: 'rgba(255,60,220,0.4)' },
+    // Amber desert sunset, heat-hazed blacktop.
+    desert: { sky: ['#4a2a1a', '#1f0f0a'], road: ['#5a4030', '#2a1c14'], lane: 'rgba(255,210,140,0.55)', weather: null, roadsideColor: 'rgba(255,140,40,0.3)' },
+    // Whiteout mountain-pass blizzard.
+    blizzard: { sky: ['#3a4550', '#151a20'], road: ['#4a545c', '#242a30'], lane: 'rgba(230,240,255,0.6)', weather: 'snow' },
+    // Final stretch: rain-slicked neon megahighway, redlining to the finish.
+    overdrive: { sky: ['#2a0a0a', '#0a0303'], road: ['#3a1418', '#160608'], lane: 'rgba(255,80,80,0.6)', weather: 'rain', rainDensity: 34, roadsideColor: 'rgba(255,40,40,0.35)' },
   };
 
   function getStageConfig(stage) {
     const s = Math.max(1, Math.floor(stage) || 1);
-    if (s <= 3) return STAGE_CONFIGS[s];
-    // Endless mode: scale stage 3's baseline harder each stage, capped so it
+    if (s <= 10) return STAGE_CONFIGS[s];
+    // Endless mode: scale stage 10's baseline harder each stage, capped so it
     // never becomes literally impossible.
-    const scale = Math.min(2.6, 1 + (s - 3) * 0.12);
-    const s3 = STAGE_CONFIGS[3];
+    const scale = Math.min(2.6, 1 + (s - 10) * 0.12);
+    const s10 = STAGE_CONFIGS[10];
     return {
-      baseSpeed: s3.baseSpeed * scale,
-      firstSpawnDelay: s3.firstSpawnDelay / scale,
-      spawnMax: s3.spawnMax / scale,
-      spawnMin: Math.max(0.15, s3.spawnMin / scale),
-      spawnDistDivisor: s3.spawnDistDivisor,
+      baseSpeed: s10.baseSpeed * scale,
+      firstSpawnDelay: s10.firstSpawnDelay / scale,
+      spawnMax: s10.spawnMax / scale,
+      spawnMin: Math.max(0.15, s10.spawnMin / scale),
+      spawnDistDivisor: s10.spawnDistDivisor,
       // Same per-stage growth rate as before (250 per +0.12 of scale), but tied
       // to `scale`'s own cap so run length levels off together with speed and
       // spawn rate instead of growing forever while difficulty plateaus.
-      distanceTarget: s3.distanceTarget + (scale - 1) * (250 / 0.12),
-      reachMultiplier: Math.max(0.85, s3.reachMultiplier - (s - 3) * 0.02),
-      theme: s3.theme,
+      distanceTarget: s10.distanceTarget + (scale - 1) * (250 / 0.12),
+      reachMultiplier: Math.max(0.85, s10.reachMultiplier - (s - 10) * 0.02),
+      theme: s10.theme,
     };
   }
 
@@ -304,7 +327,7 @@ function createRacingLevel(api) {
       FX.gradientRect(ctx, 0, 0, W, H, theme.sky[0], theme.sky[1]);
 
       // scrolling roadside scenery ticks (cheap parallax, reuses existing dash scroll)
-      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.fillStyle = theme.roadsideColor || 'rgba(0,0,0,0.25)';
       for (let i = -1; i < 8; i++) {
         const ty = ((i * 60 - dashOffset * 1.5) % (H + 60)) - 30;
         ctx.fillRect(18, ty, 10, 22);
@@ -334,16 +357,32 @@ function createRacingLevel(api) {
       drawGuardrail(ctx, ROAD_X - 6, 6);
       drawGuardrail(ctx, ROAD_X + ROAD_W, 6);
 
-      if (theme.rain) {
+      if (theme.weather === 'rain') {
+        const dropCount = theme.rainDensity || 18;
         ctx.strokeStyle = 'rgba(180,200,255,0.25)';
         ctx.lineWidth = 1;
-        for (let i = 0; i < 18; i++) {
+        for (let i = 0; i < dropCount; i++) {
           const rx = ROAD_X + ((i * 53 + dashOffset * 2) % (ROAD_W + 40)) - 20;
           const ry = (i * 97 + dashOffset * 3) % (H + 40) - 20;
           ctx.beginPath();
           ctx.moveTo(rx, ry);
           ctx.lineTo(rx - 6, ry + 16);
           ctx.stroke();
+        }
+      } else if (theme.weather === 'snow') {
+        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        for (let i = 0; i < 22; i++) {
+          const sx = ROAD_X + ((i * 47 + dashOffset * 0.6 + i * 11) % (ROAD_W + 40)) - 20;
+          const sy = (i * 83 + dashOffset * 1.1) % (H + 40) - 20;
+          ctx.beginPath();
+          ctx.arc(sx, sy, 1.6, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else if (theme.weather === 'fog') {
+        ctx.fillStyle = `rgba(230,235,235,${theme.fogAlpha || 0.15})`;
+        for (let i = 0; i < 3; i++) {
+          const fy = ((i * 150 + dashOffset * 0.3) % (H + 150)) - 75;
+          ctx.fillRect(ROAD_X - 6, fy, ROAD_W + 12, 90);
         }
       }
 

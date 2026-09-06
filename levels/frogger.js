@@ -17,9 +17,19 @@ function createFroggerLevel(api) {
   // Stage 1 keeps the original default lane speeds/layout. Stage 2 rearranges
   // lane widths/gaps and speeds things up with a tighter clock. Stage 3 goes
   // faster still and opens up an extra hazard lane on the median strip that
-  // used to be a safe resting row. Stage 4+ ("endless") reuses stage 3's
-  // layout as a base and smoothly scales speed/density/time with a cap so it
-  // never becomes literally impossible.
+  // used to be a safe resting row. Stages 4-10 keep escalating speed,
+  // density, goal-pad count and time pressure by hand, each with its own
+  // time-of-day/weather palette, culminating in stage 10's fast multi-lane
+  // finale. Stage 11+ ("endless") reuses stage 10's layout as a base and
+  // smoothly scales speed/density/time with a cap so it never becomes
+  // literally impossible.
+  //
+  // Safety invariant for every road/hazard lane in every stage below: a car
+  // lane is a hard rects-overlap hazard, so the frog needs a real gap
+  // (gap - w) at least as wide as itself to have any surviving spot at all.
+  // We keep (gap - w) >= FROG_SIZE + 14 for every road/hazard lane (the same
+  // per-lane-floor margin the endless-mode formula enforces below), so no
+  // hand-built lane can ever be mathematically uncrossable.
   const STAGE_1 = {
     road: [
       { row: 10, speed: 70, dir: 1, gap: 170, w: 44 },
@@ -76,15 +86,151 @@ function createFroggerLevel(api) {
     timeLimit: 16,
     theme: 'night',
   };
+  const STAGE_4 = {
+    road: [
+      { row: 10, speed: 150, dir: -1, gap: 127, w: 42 },
+      { row: 9, speed: 190, dir: 1, gap: 123, w: 38 },
+      { row: 8, speed: 128, dir: -1, gap: 141, w: 56 },
+      { row: 7, speed: 218, dir: 1, gap: 115, w: 30 },
+    ],
+    river: [
+      { row: 5, speed: 105, dir: -1, gap: 146, w: 82 },
+      { row: 4, speed: 150, dir: 1, gap: 126, w: 52 },
+      { row: 3, speed: 90, dir: -1, gap: 166, w: 112 },
+      { row: 2, speed: 130, dir: 1, gap: 136, w: 66 },
+    ],
+    hazard: { row: 6, speed: 180, dir: -1, gap: 117, w: 32 },
+    goalCols: [1, 4, 7, 10, 13],
+    timeLimit: 15,
+    theme: 'storm',
+  };
+  const STAGE_5 = {
+    road: [
+      { row: 10, speed: 165, dir: 1, gap: 122, w: 44 },
+      { row: 9, speed: 205, dir: -1, gap: 118, w: 40 },
+      { row: 8, speed: 142, dir: 1, gap: 136, w: 58 },
+      { row: 7, speed: 232, dir: -1, gap: 110, w: 32 },
+    ],
+    river: [
+      { row: 5, speed: 115, dir: 1, gap: 142, w: 84 },
+      { row: 4, speed: 160, dir: -1, gap: 122, w: 54 },
+      { row: 3, speed: 100, dir: 1, gap: 162, w: 114 },
+      { row: 2, speed: 140, dir: -1, gap: 132, w: 68 },
+    ],
+    hazard: { row: 6, speed: 195, dir: 1, gap: 112, w: 34 },
+    goalCols: [0, 3, 6, 9, 12, 15],
+    timeLimit: 14,
+    theme: 'dawn',
+  };
+  const STAGE_6 = {
+    road: [
+      { row: 10, speed: 180, dir: -1, gap: 118, w: 46 },
+      { row: 9, speed: 220, dir: 1, gap: 114, w: 42 },
+      { row: 8, speed: 155, dir: -1, gap: 132, w: 60 },
+      { row: 7, speed: 248, dir: 1, gap: 106, w: 34 },
+    ],
+    river: [
+      { row: 5, speed: 125, dir: -1, gap: 138, w: 86 },
+      { row: 4, speed: 170, dir: 1, gap: 118, w: 56 },
+      { row: 3, speed: 110, dir: -1, gap: 158, w: 116 },
+      { row: 2, speed: 150, dir: 1, gap: 128, w: 70 },
+    ],
+    hazard: { row: 6, speed: 210, dir: -1, gap: 108, w: 36 },
+    goalCols: [1, 4, 6, 9, 11, 14],
+    timeLimit: 13,
+    theme: 'blizzard',
+  };
+  const STAGE_7 = {
+    road: [
+      { row: 10, speed: 195, dir: 1, gap: 114, w: 48 },
+      { row: 9, speed: 235, dir: -1, gap: 110, w: 44 },
+      { row: 8, speed: 168, dir: 1, gap: 128, w: 62 },
+      { row: 7, speed: 262, dir: -1, gap: 102, w: 36 },
+    ],
+    river: [
+      { row: 5, speed: 135, dir: 1, gap: 134, w: 88 },
+      { row: 4, speed: 180, dir: -1, gap: 114, w: 58 },
+      { row: 3, speed: 120, dir: 1, gap: 154, w: 118 },
+      { row: 2, speed: 160, dir: -1, gap: 124, w: 72 },
+    ],
+    hazard: { row: 6, speed: 225, dir: 1, gap: 104, w: 38 },
+    goalCols: [0, 2, 5, 7, 10, 12, 15],
+    timeLimit: 12.5,
+    theme: 'neon',
+  };
+  const STAGE_8 = {
+    road: [
+      { row: 10, speed: 210, dir: -1, gap: 110, w: 50 },
+      { row: 9, speed: 250, dir: 1, gap: 106, w: 46 },
+      { row: 8, speed: 182, dir: -1, gap: 124, w: 64 },
+      { row: 7, speed: 278, dir: 1, gap: 98, w: 38 },
+    ],
+    river: [
+      { row: 5, speed: 145, dir: -1, gap: 130, w: 90 },
+      { row: 4, speed: 190, dir: 1, gap: 110, w: 60 },
+      { row: 3, speed: 130, dir: -1, gap: 150, w: 120 },
+      { row: 2, speed: 170, dir: 1, gap: 120, w: 74 },
+    ],
+    hazard: { row: 6, speed: 240, dir: -1, gap: 100, w: 40 },
+    goalCols: [1, 3, 6, 8, 10, 13, 15],
+    timeLimit: 12,
+    theme: 'aurora',
+  };
+  const STAGE_9 = {
+    road: [
+      { row: 10, speed: 225, dir: 1, gap: 107, w: 52 },
+      { row: 9, speed: 265, dir: -1, gap: 103, w: 48 },
+      { row: 8, speed: 195, dir: 1, gap: 121, w: 66 },
+      { row: 7, speed: 292, dir: -1, gap: 95, w: 40 },
+    ],
+    river: [
+      { row: 5, speed: 155, dir: 1, gap: 126, w: 92 },
+      { row: 4, speed: 200, dir: -1, gap: 106, w: 62 },
+      { row: 3, speed: 140, dir: 1, gap: 146, w: 122 },
+      { row: 2, speed: 180, dir: -1, gap: 116, w: 76 },
+    ],
+    hazard: { row: 6, speed: 255, dir: 1, gap: 97, w: 42 },
+    goalCols: [0, 2, 4, 6, 9, 11, 13, 15],
+    timeLimit: 11.5,
+    theme: 'eclipse',
+  };
+  const STAGE_10 = {
+    road: [
+      { row: 10, speed: 240, dir: -1, gap: 104, w: 54 },
+      { row: 9, speed: 280, dir: 1, gap: 100, w: 50 },
+      { row: 8, speed: 208, dir: -1, gap: 118, w: 68 },
+      { row: 7, speed: 308, dir: 1, gap: 92, w: 42 },
+    ],
+    river: [
+      { row: 5, speed: 165, dir: -1, gap: 122, w: 94 },
+      { row: 4, speed: 210, dir: 1, gap: 102, w: 64 },
+      { row: 3, speed: 150, dir: -1, gap: 142, w: 124 },
+      { row: 2, speed: 190, dir: 1, gap: 112, w: 78 },
+    ],
+    // Fastest, tightest hazard lane of the hand-built run; still holds the
+    // same comfortable-above-the-floor margin as every other stage below.
+    hazard: { row: 6, speed: 270, dir: -1, gap: 94, w: 44 },
+    goalCols: [0, 2, 4, 6, 7, 9, 11, 13, 15],
+    timeLimit: 11,
+    theme: 'inferno',
+  };
 
   function getStageConfig(stage) {
     if (stage <= 1) return STAGE_1;
     if (stage === 2) return STAGE_2;
     if (stage === 3) return STAGE_3;
+    if (stage === 4) return STAGE_4;
+    if (stage === 5) return STAGE_5;
+    if (stage === 6) return STAGE_6;
+    if (stage === 7) return STAGE_7;
+    if (stage === 8) return STAGE_8;
+    if (stage === 9) return STAGE_9;
+    if (stage === 10) return STAGE_10;
 
-    // Endless mode: stage 3's layout scaled smoothly harder, capped so it
-    // never becomes unfair even deep into a long run.
-    const scale = Math.min(2.6, 1 + (stage - 3) * 0.12);
+    // Endless mode: stage 10's layout (the hardest hand-built stage) scaled
+    // smoothly harder still, capped so it never becomes unfair even deep
+    // into a long run.
+    const scale = Math.min(2.6, 1 + (stage - 10) * 0.12);
     // Road/hazard lanes are a hard rects-overlap hazard: the frog needs a
     // real gap (gap - w) at least as wide as itself to have any surviving
     // spot at all. A flat gap floor (independent of car width) used to let
@@ -105,19 +251,19 @@ function createFroggerLevel(api) {
       gap: Math.max(70, l.gap / Math.sqrt(scale)),
     });
     return {
-      road: STAGE_3.road.map(scaleRoadLane),
-      river: STAGE_3.river.map(scaleRiverLane),
-      hazard: STAGE_3.hazard ? scaleRoadLane(STAGE_3.hazard) : null,
-      goalCols: STAGE_3.goalCols,
-      timeLimit: Math.max(10, STAGE_3.timeLimit - (stage - 3) * 0.6),
-      theme: STAGE_3.theme,
+      road: STAGE_10.road.map(scaleRoadLane),
+      river: STAGE_10.river.map(scaleRiverLane),
+      hazard: STAGE_10.hazard ? scaleRoadLane(STAGE_10.hazard) : null,
+      goalCols: STAGE_10.goalCols,
+      timeLimit: Math.max(10, STAGE_10.timeLimit - (stage - 10) * 0.6),
+      theme: STAGE_10.theme,
     };
   }
 
   // Cheap per-stage lighting pass: same terrain layout, different palette,
   // so each stage reads as "somewhere new" without redrawing anything.
-  // Endless mode reuses stage 3's (night) theme since it reuses stage 3's
-  // layout wholesale.
+  // Endless mode reuses stage 10's (inferno) theme since it reuses stage
+  // 10's layout wholesale.
   const THEMES = {
     day: {
       sky: ['#0f4a20', '#08260f'],
@@ -142,6 +288,62 @@ function createFroggerLevel(api) {
       median: ['#123018', '#08170c'],
       road: ['#1c1c2a', '#0c0c14'],
       start: ['#123a24', '#081c12'],
+    },
+    storm: {
+      sky: ['#3a4a5a', '#1c242c'],
+      bank: ['#4a5a6a', '#242c34'],
+      water: ['#2a3a5a', '#12182a'],
+      median: ['#3a4a3a', '#1c241c'],
+      road: ['#2a2a32', '#141418'],
+      start: ['#3a4a3a', '#1c241c'],
+    },
+    dawn: {
+      sky: ['#ff8a5a', '#7a2a4a'],
+      bank: ['#c47a4a', '#6a3a20'],
+      water: ['#3a5a9a', '#1a2a4a'],
+      median: ['#5a7a3a', '#2a3a1a'],
+      road: ['#3a2a3a', '#1a121a'],
+      start: ['#5a7a3a', '#2a3a1a'],
+    },
+    blizzard: {
+      sky: ['#c8dced', '#7a9ab0'],
+      bank: ['#d8e8f5', '#a0c0d5'],
+      water: ['#7aa8d0', '#3a5a80'],
+      median: ['#c8e0e8', '#8aa8b5'],
+      road: ['#5a6a75', '#2a343c'],
+      start: ['#c8e0e8', '#8aa8b5'],
+    },
+    neon: {
+      sky: ['#0a0a2a', '#050514'],
+      bank: ['#2a0a4a', '#12051e'],
+      water: ['#0a2a4a', '#03101e'],
+      median: ['#3a0a4a', '#170520'],
+      road: ['#1a0a2a', '#0a0512'],
+      start: ['#3a0a4a', '#170520'],
+    },
+    aurora: {
+      sky: ['#0a2a2a', '#03100f'],
+      bank: ['#0a3a2a', '#031c14'],
+      water: ['#123a5a', '#08182a'],
+      median: ['#123a2a', '#061c14'],
+      road: ['#1a2a2a', '#0a1414'],
+      start: ['#123a2a', '#061c14'],
+    },
+    eclipse: {
+      sky: ['#2a0a0a', '#0f0303'],
+      bank: ['#3a1414', '#180606'],
+      water: ['#1a0a2a', '#0a040f'],
+      median: ['#2a1414', '#100808'],
+      road: ['#1a0a0a', '#0a0404'],
+      start: ['#2a1414', '#100808'],
+    },
+    inferno: {
+      sky: ['#5a1a0a', '#2a0a03'],
+      bank: ['#7a2a0a', '#3a1204'],
+      water: ['#3a0a1a', '#18040c'],
+      median: ['#5a2a0a', '#2a1204'],
+      road: ['#2a1010', '#120606'],
+      start: ['#5a2a0a', '#2a1204'],
     },
   };
 

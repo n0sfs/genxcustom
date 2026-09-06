@@ -3,8 +3,8 @@ function createPatternPulseLevel(api) {
 
   const DIRS = ['up', 'down', 'left', 'right'];
 
-  // Per-stage difficulty config. Stages 1-3 are hand-built; stage 4+ is
-  // "endless mode" — a smooth continuous scale-up off the stage-3 baseline,
+  // Per-stage difficulty config. Stages 1-10 are hand-built; stage 11+ is
+  // "endless mode" — a smooth continuous scale-up off the stage-10 baseline,
   // capped so deep stages stay merely hard instead of unreadable.
   function computeStageConfig(stage) {
     const s = Math.max(1, Math.floor(stage) || 1);
@@ -18,23 +18,48 @@ function createPatternPulseLevel(api) {
     if (s === 3) {
       return { startLen: 5, targetLen: 18, litTime: 0.3, gapTime: 0.13, startPause: 0.35, stepTimeout: 2.6 };
     }
+    if (s === 4) {
+      return { startLen: 7, targetLen: 22, litTime: 0.28, gapTime: 0.122, startPause: 0.33, stepTimeout: 2.40 };
+    }
+    if (s === 5) {
+      return { startLen: 9, targetLen: 26, litTime: 0.26, gapTime: 0.115, startPause: 0.31, stepTimeout: 2.20 };
+    }
+    if (s === 6) {
+      return { startLen: 11, targetLen: 29, litTime: 0.24, gapTime: 0.109, startPause: 0.29, stepTimeout: 2.02 };
+    }
+    if (s === 7) {
+      return { startLen: 13, targetLen: 32, litTime: 0.225, gapTime: 0.104, startPause: 0.275, stepTimeout: 1.90 };
+    }
+    if (s === 8) {
+      return { startLen: 14, targetLen: 35, litTime: 0.21, gapTime: 0.10, startPause: 0.26, stepTimeout: 1.80 };
+    }
+    if (s === 9) {
+      return { startLen: 15, targetLen: 38, litTime: 0.195, gapTime: 0.095, startPause: 0.245, stepTimeout: 1.72 };
+    }
+    if (s === 10) {
+      return { startLen: 16, targetLen: 40, litTime: 0.18, gapTime: 0.09, startPause: 0.23, stepTimeout: 1.65 };
+    }
 
-    // Endless mode: stage 4+.
-    const n = s - 3;
-    const speedScale = Math.min(1 + n * 0.12, 2.3); // cap ~2.3x faster than stage 3
-    // Math.round (not floor) so stage 4 (n=1) already ticks startLen up past
-    // stage 3's baseline instead of repeating it verbatim — otherwise the
+    // Endless mode: stage 11+, scaled off the stage-10 baseline.
+    const n = s - 10;
+    const speedScale = Math.min(1 + n * 0.12, 2.3); // cap ~2.3x faster than stage 10
+    // Math.round (not floor) so stage 11 (n=1) already ticks startLen up past
+    // stage 10's baseline instead of repeating it verbatim — otherwise the
     // first endless stage was a pure speed bump with zero length increase.
-    const startLen = Math.min(5 + Math.round(n * 0.6), 20); // cap so the watch phase stays sane
-    const targetLen = Math.min(startLen + 12 + Math.floor(n * 1.0), 40);
+    const startLen = Math.min(16 + Math.round(n * 0.6), 32); // cap so the watch phase stays sane
+    const targetLen = Math.min(startLen + 24 + Math.floor(n * 1.0), 80);
 
     return {
       startLen,
       targetLen: Math.max(targetLen, startLen + 1),
-      litTime: Math.max(0.3 / speedScale, 0.14),
-      gapTime: Math.max(0.13 / speedScale, 0.07),
-      startPause: Math.max(0.35 / speedScale, 0.18),
-      stepTimeout: Math.max(2.6 / speedScale, 1.3),
+      // Floors tuned so speed plateaus by ~stage 13 (3 endless steps past the
+      // stage-10 baseline) rather than becoming unreadably fast — past that
+      // point, difficulty climbs purely via startLen/targetLen (memory load),
+      // not raw speed.
+      litTime: Math.max(0.18 / speedScale, 0.14),
+      gapTime: Math.max(0.09 / speedScale, 0.07),
+      startPause: Math.max(0.23 / speedScale, 0.18),
+      stepTimeout: Math.max(1.65 / speedScale, 1.3),
     };
   }
 

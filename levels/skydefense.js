@@ -21,12 +21,20 @@ function createSkyDefenseLevel(api) {
   // gradient stops swapped in draw(). The barrage getting visibly redder as stages
   // climb sells "the siege is worsening" without touching any sprite.
   const SKY_THEMES = [
-    ['#0a0a2a', '#04041a'], // stage 1: calm night
-    ['#1c1030', '#100819'], // stage 2: tense, faint alert-purple
-    ['#2a0f16', '#180810'], // stage 3+: under siege, warm red undertone
+    { max: 1, colors: ['#0a0a2a', '#04041a'] }, // stage 1: calm night
+    { max: 2, colors: ['#1c1030', '#100819'] }, // stage 2: tense, faint alert-purple
+    { max: 3, colors: ['#2a0f16', '#180810'] }, // stage 3: under siege, warm red undertone
+    { max: 5, colors: ['#3a0e12', '#20070a'] }, // stages 4-5: deepening crimson, sky nearly gone
+    { max: 7, colors: ['#4a0d0f', '#260608'] }, // stages 6-7: heavy siege, embers on black
+    { max: 9, colors: ['#5a0c0c', '#2c0505'] }, // stages 8-9: blood-red, sky almost extinguished
+    { max: Infinity, colors: ['#6a0b09', '#330404'] }, // stage 10+ (and endless): full conflagration
   ];
   function skyTheme(stage) {
-    return SKY_THEMES[Math.min(SKY_THEMES.length, Math.max(1, Math.floor(stage))) - 1];
+    const s = Math.max(1, Math.floor(stage));
+    for (const theme of SKY_THEMES) {
+      if (s <= theme.max) return theme.colors;
+    }
+    return SKY_THEMES[SKY_THEMES.length - 1].colors;
   }
 
   let cities, crosshair, fireCooldown, interceptors, blasts, missiles, particles, impacts, stars;
@@ -36,8 +44,17 @@ function createSkyDefenseLevel(api) {
 
   // Stage 1: baseline missile spawn rate (unchanged from the original tuning).
   // Stage 2: noticeably faster spawn rate, occasional simultaneous missiles, higher target.
-  // Stage 3: faster/denser still, higher target.
-  // Stage 4+: endless mode — smoothly scale stage 3's baseline, capped so it never
+  // Stage 3: faster/denser still, higher target. This is also where intervalFloor
+  // (0.32) and burstChance (0.3) reach their sustainable ceiling — see the note
+  // below stage 10 for the math.
+  //
+  // Stages 4-10 (hand-built): intervalFloor and burstChance are held at stage 3's
+  // values on purpose — they do NOT keep climbing stage over stage. Only
+  // intervalBase (how fast the within-level ramp reaches that frozen floor) and
+  // missile speed keep escalating, plus a modest target bump. See the sustained-rate
+  // note below stage 10 for why the floor/burst freeze can't be relaxed further.
+  //
+  // Stage 11+: endless mode — smoothly scale stage 10's baseline, capped so it never
   // becomes literally impossible. This baseline layers underneath the existing
   // within-stage ramp (elapsed/kills based) in difficultyInterval()/spawnMissile().
   function stageConfig(stage) {
@@ -51,25 +68,55 @@ function createSkyDefenseLevel(api) {
     if (s === 3) {
       return { intervalBase: 1.1, intervalFloor: 0.32, speedBase: 74, speedVar: 26, speedRampCap: 110, target: 45, burstChance: 0.3 };
     }
-    const scale = Math.min(2.5, 1 + (s - 3) * 0.12);
-    // intervalFloor and burstChance are deliberately frozen at stage 3's own values
-    // (not scaled further) rather than following `scale` like everything else here.
-    // FIRE_COOLDOWN never changes, so the player's max possible interception rate is
-    // fixed at ~1/0.35 ≈ 2.86/s; stage 3 already sustains missiles at ~2.63/s, right
-    // at that ceiling. Letting intervalFloor keep shrinking toward 0.18 and
-    // burstChance keep climbing toward 0.6 (as this used to do) pushes the sustained
-    // rate past 2.9/s as early as stage 4, and to ~4.5/s at the endless cap — past
-    // the point where intercepting everything is mathematically possible, not just
-    // hard. Freezing these two keeps the incoming *count* rate within reach forever,
-    // while intervalBase (faster ramp-up) and missile speed keep escalating so
-    // endless mode still gets meaningfully harder past stage 3.
+    if (s === 4) {
+      return { intervalBase: 1.02, intervalFloor: 0.32, speedBase: 88, speedVar: 30, speedRampCap: 130, target: 52, burstChance: 0.3 };
+    }
+    if (s === 5) {
+      return { intervalBase: 0.94, intervalFloor: 0.32, speedBase: 102, speedVar: 34, speedRampCap: 150, target: 59, burstChance: 0.3 };
+    }
+    if (s === 6) {
+      return { intervalBase: 0.86, intervalFloor: 0.32, speedBase: 116, speedVar: 38, speedRampCap: 170, target: 66, burstChance: 0.3 };
+    }
+    if (s === 7) {
+      return { intervalBase: 0.78, intervalFloor: 0.32, speedBase: 130, speedVar: 42, speedRampCap: 190, target: 73, burstChance: 0.3 };
+    }
+    if (s === 8) {
+      return { intervalBase: 0.70, intervalFloor: 0.32, speedBase: 144, speedVar: 46, speedRampCap: 210, target: 80, burstChance: 0.3 };
+    }
+    if (s === 9) {
+      return { intervalBase: 0.62, intervalFloor: 0.32, speedBase: 158, speedVar: 50, speedRampCap: 230, target: 87, burstChance: 0.3 };
+    }
+    if (s === 10) {
+      return { intervalBase: 0.54, intervalFloor: 0.32, speedBase: 172, speedVar: 54, speedRampCap: 250, target: 94, burstChance: 0.3 };
+    }
+    const scale = Math.min(2.5, 1 + (s - 10) * 0.12);
+    // intervalFloor and burstChance are deliberately frozen at stage 10's own values
+    // (which are themselves unchanged from stage 3 — see above) rather than
+    // following `scale` like everything else here. FIRE_COOLDOWN never changes, so
+    // the player's max possible interception rate is fixed at ~1/0.35 ≈ 2.86/s.
+    //
+    // Sustained-rate math (same check the original stage-3 fix did, re-run at the
+    // frozen values): once elapsed/kills decay difficultyInterval()'s base term
+    // below intervalFloor, spawnTimer settles to intervalFloor + avg(random*0.35)
+    // = 0.32 + 0.175 = 0.495s between spawn *events*. Each event throws a second
+    // missile with probability burstChance (0.3), so the average missile count per
+    // event is 1.3, giving a sustained rate of 1.3 / 0.495 ≈ 2.63 missiles/sec —
+    // just under the 2.86/s interception ceiling, with the same margin stage 3 had.
+    // That math is stage-count-independent (it only depends on intervalFloor and
+    // burstChance), so freezing both at stage 10's values keeps this ~2.63/s
+    // ceiling forever in endless mode, no matter how high `s` climbs. Letting
+    // intervalFloor keep shrinking or burstChance keep climbing past this point
+    // (as the pre-fix version did) would push the sustained rate past the
+    // achievable maximum — exactly the bug this freeze exists to prevent.
+    // intervalBase (faster ramp-up) and missile speed keep escalating instead, so
+    // endless mode still gets meaningfully harder past stage 10.
     return {
-      intervalBase: Math.max(0.5, 1.1 / scale),
+      intervalBase: Math.max(0.35, 0.54 / scale),
       intervalFloor: 0.32,
-      speedBase: Math.min(74 * 2.2, 74 * scale),
-      speedVar: Math.min(26 * 2.2, 26 * scale),
-      speedRampCap: Math.min(110 * 2.2, 110 * scale),
-      target: Math.round(45 + (s - 3) * 10),
+      speedBase: Math.min(172 * 2.2, 172 * scale),
+      speedVar: Math.min(54 * 2.2, 54 * scale),
+      speedRampCap: Math.min(250 * 2.2, 250 * scale),
+      target: Math.round(94 + (s - 10) * 10),
       burstChance: 0.3,
     };
   }

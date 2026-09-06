@@ -63,50 +63,104 @@ function createTetrisLevel(api) {
   // Cheap per-stage palette swap (backdrop/board/grid/garbage tint only —
   // same draw calls, just different colors) so the cabinet reads as a
   // different "cabinet mood" per stage: cool and calm with no garbage yet,
-  // then a warmer tone once garbage rows appear, then a hotter/redder tone
-  // once the stack is genuinely dangerous. Endless mode reuses the stage-3
-  // (danger) palette since it's built on stage 3's setup.
+  // then progressively warmer/hotter tones as garbage piles up and the
+  // stack gets more dangerous, finishing on a magenta "final boss" look
+  // for stage 10. Endless mode reuses the stage-10 (apex) palette since
+  // it's built on stage 10's setup.
   const THEMES = {
     calm: { bg: '#0a0a14', board: '#12121e', grid: 'rgba(255,255,255,0.04)', garbage: '#4a4a5e' },
     dusk: { bg: '#120a12', board: '#1a121c', grid: 'rgba(255,210,255,0.04)', garbage: '#5a3a56' },
     danger: { bg: '#140808', board: '#1e1010', grid: 'rgba(255,170,140,0.04)', garbage: '#6e3a3a' },
+    ember: { bg: '#180a04', board: '#221008', grid: 'rgba(255,190,140,0.05)', garbage: '#7a4a2a' },
+    inferno: { bg: '#1c0603', board: '#280a06', grid: 'rgba(255,120,80,0.06)', garbage: '#8a3a1e' },
+    abyss: { bg: '#05060f', board: '#0a0c1c', grid: 'rgba(140,160,255,0.05)', garbage: '#3a3a6e' },
+    apex: { bg: '#0c0410', board: '#160820', grid: 'rgba(255,140,255,0.06)', garbage: '#8a3a8a' },
   };
 
   // Pre-placed "garbage" rows for the bottom of the board — each one full
-  // except for a single random gap, so it's a genuine obstacle (must be
+  // except for one or two gaps, so it's a genuine obstacle (must be
   // maneuvered around) rather than free lines. Leaves the top few rows
   // clear so a piece always has room to spawn.
-  function buildGarbageRows(count, color) {
+  //
+  // `shape` controls gap variety so later stages don't feel like the same
+  // single-random-gap pattern with bigger numbers:
+  //  - 'single'      original behavior: one random gap column per row.
+  //  - 'alternating' the gap alternates between two fixed columns, forcing
+  //                  a zigzag maneuver instead of one straight lane.
+  //  - 'mixed'       alternating gaps, but every third row gets an easier
+  //                  double-wide gap as a breather.
+  //  - 'chaos'       gaps rotate through three columns spread across the
+  //                  board (no single safe lane), with an easier double
+  //                  gap every fourth row.
+  function buildGarbageRows(count, color, shape = 'single') {
     const rows = Array.from({ length: ROWS }, () => new Array(COLS).fill(null));
     const safeCount = Math.min(count, ROWS - 6);
+    let gapCols = null;
+    if (shape === 'alternating') {
+      const a = Math.floor(Math.random() * COLS);
+      let b = Math.floor(Math.random() * COLS);
+      if (b === a) b = (b + Math.floor(COLS / 2)) % COLS;
+      gapCols = [a, b];
+    } else if (shape === 'mixed' || shape === 'chaos') {
+      gapCols = [Math.floor(COLS * 0.15), Math.floor(COLS * 0.5), Math.floor(COLS * 0.85)];
+    }
     for (let i = 0; i < safeCount; i++) {
       const r = ROWS - 1 - i;
-      const gap = Math.floor(Math.random() * COLS);
-      rows[r] = Array.from({ length: COLS }, (_, c) => (c === gap ? null : color));
+      const wantsDoubleGap = (shape === 'mixed' && i % 3 === 2) || (shape === 'chaos' && i % 4 === 3);
+      if (wantsDoubleGap) {
+        const g1 = Math.floor(Math.random() * COLS);
+        const g2 = (g1 + 1 + Math.floor(Math.random() * (COLS - 1))) % COLS;
+        rows[r] = Array.from({ length: COLS }, (_, c) => (c === g1 || c === g2 ? null : color));
+      } else {
+        const gap = gapCols ? gapCols[i % gapCols.length] : Math.floor(Math.random() * COLS);
+        rows[r] = Array.from({ length: COLS }, (_, c) => (c === gap ? null : color));
+      }
     }
     return rows;
   }
 
-  // Stage config: 3 hand-built stages, then a smooth endless ramp reusing
-  // stage 3's setup as its base, capped so it never becomes literally
+  // Stage config: 10 hand-built stages, then a smooth endless ramp reusing
+  // stage 10's setup as its base, capped so it never becomes literally
   // impossible.
   function stageConfig(stage) {
     const s = Math.max(1, Math.floor(stage));
     if (s === 1) {
-      return { speedMult: 1, garbageRows: 0, targetLines: TARGET_LINES, theme: 'calm' };
+      return { speedMult: 1, garbageRows: 0, targetLines: TARGET_LINES, theme: 'calm', shape: 'single' };
     }
     if (s === 2) {
-      return { speedMult: 1.2, garbageRows: 3, targetLines: TARGET_LINES + 4, theme: 'dusk' };
+      return { speedMult: 1.2, garbageRows: 3, targetLines: TARGET_LINES + 4, theme: 'dusk', shape: 'single' };
     }
     if (s === 3) {
-      return { speedMult: 1.45, garbageRows: 6, targetLines: TARGET_LINES + 8, theme: 'danger' };
+      return { speedMult: 1.45, garbageRows: 6, targetLines: TARGET_LINES + 8, theme: 'danger', shape: 'single' };
     }
-    const scale = Math.min(1 + (s - 3) * 0.12, ENDLESS_CAP);
+    if (s === 4) {
+      return { speedMult: 1.65, garbageRows: 8, targetLines: TARGET_LINES + 12, theme: 'ember', shape: 'single' };
+    }
+    if (s === 5) {
+      return { speedMult: 1.85, garbageRows: 9, targetLines: TARGET_LINES + 16, theme: 'ember', shape: 'alternating' };
+    }
+    if (s === 6) {
+      return { speedMult: 2.05, garbageRows: 10, targetLines: TARGET_LINES + 20, theme: 'inferno', shape: 'alternating' };
+    }
+    if (s === 7) {
+      return { speedMult: 2.25, garbageRows: 11, targetLines: TARGET_LINES + 24, theme: 'inferno', shape: 'mixed' };
+    }
+    if (s === 8) {
+      return { speedMult: 2.45, garbageRows: 12, targetLines: TARGET_LINES + 28, theme: 'abyss', shape: 'mixed' };
+    }
+    if (s === 9) {
+      return { speedMult: 2.65, garbageRows: 13, targetLines: TARGET_LINES + 32, theme: 'abyss', shape: 'chaos' };
+    }
+    if (s === 10) {
+      return { speedMult: 2.85, garbageRows: 14, targetLines: TARGET_LINES + 36, theme: 'apex', shape: 'chaos' };
+    }
+    const scale = Math.min(1 + (s - 10) * 0.12, ENDLESS_CAP);
     return {
-      speedMult: Math.min(1.45 * scale, 3), // absolute cap: never faster than 3x stage-1 speed
-      garbageRows: Math.min(Math.round(6 * scale), ROWS - 6),
-      targetLines: Math.min(TARGET_LINES + 8 + Math.round((s - 3) * 2), 60),
-      theme: 'danger',
+      speedMult: Math.min(2.85 * scale, 6), // absolute cap: never faster than ~2.1x stage-10 speed
+      garbageRows: Math.min(Math.round(14 * scale), ROWS - 6),
+      targetLines: Math.min(TARGET_LINES + 36 + Math.round((s - 10) * 2), 100),
+      theme: 'apex',
+      shape: 'chaos',
     };
   }
 
@@ -280,7 +334,7 @@ function createTetrisLevel(api) {
       targetLines = cfg.targetLines;
       theme = THEMES[cfg.theme];
       board = cfg.garbageRows > 0
-        ? buildGarbageRows(cfg.garbageRows, theme.garbage)
+        ? buildGarbageRows(cfg.garbageRows, theme.garbage, cfg.shape)
         : Array.from({ length: ROWS }, () => new Array(COLS).fill(null));
       bag = [];
       nextType = drawBag();

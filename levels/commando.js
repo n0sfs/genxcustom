@@ -47,6 +47,55 @@ function createCommandoLevel(api) {
       foliageDark: '#122a1c', foliageLight: '#1a3624',
       ground: ['#1c2c1e', '#0a120c'],
     },
+    // Stage 4: overcast river crossing.
+    river: {
+      sky: ['#1a3530', '#0a1815'],
+      canopyDark: '#122820', canopyLight: '#1a3428',
+      foliageDark: '#1e4030', foliageLight: '#2a4c38',
+      ground: ['#2e4a3a', '#141f18'],
+    },
+    // Stage 5: murky dusk marsh.
+    dusk2: {
+      sky: ['#3a3020', '#160f08'],
+      canopyDark: '#2a2818', canopyLight: '#34301c',
+      foliageDark: '#3a3818', foliageLight: '#403c20',
+      ground: ['#3a3822', '#1a1810'],
+    },
+    // Stage 6: ruined base at dusk.
+    ruins: {
+      sky: ['#3a2a2a', '#160e0e'],
+      canopyDark: '#2e2626', canopyLight: '#3a2e2e',
+      foliageDark: '#332828', foliageLight: '#3e3030',
+      ground: ['#4a3e3a', '#201a18'],
+    },
+    // Stage 7: night thunderstorm.
+    storm: {
+      sky: ['#151030', '#05040c'],
+      canopyDark: '#181430', canopyLight: '#221c3a',
+      foliageDark: '#1c1834', foliageLight: '#26203e',
+      ground: ['#221e34', '#0c0a16'],
+    },
+    // Stage 8: ruined base at night.
+    ruinsNight: {
+      sky: ['#12161e', '#04060a'],
+      canopyDark: '#1a1a20', canopyLight: '#242428',
+      foliageDark: '#1e1e26', foliageLight: '#28282e',
+      ground: ['#26221e', '#0e0c0a'],
+    },
+    // Stage 9: deep night storm.
+    storm2: {
+      sky: ['#100c26', '#030209'],
+      canopyDark: '#140f2a', canopyLight: '#1c1636',
+      foliageDark: '#160f30', foliageLight: '#201840',
+      ground: ['#1c1830', '#080614'],
+    },
+    // Stage 10: final gauntlet - blood-red skies over a burning perimeter.
+    gauntlet: {
+      sky: ['#2a0e10', '#0a0304'],
+      canopyDark: '#280e10', canopyLight: '#341216',
+      foliageDark: '#2c1012', foliageLight: '#38161a',
+      ground: ['#3a1418', '#140506'],
+    },
   };
 
   // Stage 1: the original default layout/pace.
@@ -118,14 +167,269 @@ function createCommandoLevel(api) {
       speedMul: 1.3,
       theme: 'night',
     },
+    // Stage 4: river crossing - grunts bunch tightly at narrow crossing points,
+    // turrets sit right on top of the crossings themselves.
+    {
+      gruntSpawns: [
+        { x: 260, range: [220, 340] },
+        { x: 340, range: [260, 420] },
+        { x: 700, range: [640, 820] },
+        { x: 820, range: [720, 860] },
+        { x: 1150, range: [1100, 1220] },
+        { x: 1550, range: [1480, 1650] },
+        { x: 1650, range: [1560, 1700] },
+        { x: 1950, range: [1880, 2060] },
+        { x: 2300, range: [2240, 2380] },
+        { x: 2380, range: [2300, 2450] },
+      ],
+      turretSpawns: [
+        { x: 400, y: GROUND_Y - 40 },
+        { x: 1180, y: GROUND_Y - 40 },
+        { x: 1600, y: GROUND_Y - 40 },
+        { x: 2340, y: GROUND_Y - 40 },
+      ],
+      chopperSpawns: [
+        { range: [200, 750], y: 80 },
+        { range: [850, 1400], y: 100 },
+        { range: [1500, 2050], y: 90 },
+        { range: [2150, 2500], y: 110 },
+      ],
+      fireRateMul: 1.62,
+      speedMul: 1.36,
+      theme: 'river',
+    },
+    // Stage 5: murky marsh - spread ambush groups building into a dense
+    // gauntlet in the last quarter before extraction.
+    {
+      gruntSpawns: [
+        { x: 260, range: [200, 380] },
+        { x: 560, range: [500, 680] },
+        { x: 820, range: [760, 920] },
+        { x: 1080, range: [1000, 1180] },
+        { x: 1350, range: [1280, 1460] },
+        { x: 1600, range: [1520, 1700] },
+        { x: 1850, range: [1780, 1950] },
+        { x: 2100, range: [2040, 2200] },
+        { x: 2220, range: [2140, 2300] },
+        { x: 2340, range: [2260, 2420] },
+        { x: 2440, range: [2380, 2520] },
+      ],
+      turretSpawns: [
+        { x: 460, y: GROUND_Y - 40 },
+        { x: 1000, y: GROUND_Y - 40 },
+        { x: 1650, y: GROUND_Y - 40 },
+        { x: 2150, y: GROUND_Y - 40 },
+        { x: 2420, y: GROUND_Y - 40 },
+      ],
+      chopperSpawns: [
+        { range: [200, 700], y: 80 },
+        { range: [750, 1250], y: 100 },
+        { range: [1300, 1800], y: 90 },
+        { range: [1900, 2350], y: 110 },
+        { range: [2200, 2500], y: 75 },
+      ],
+      fireRateMul: 1.78,
+      speedMul: 1.44,
+      theme: 'dusk2',
+    },
+    // Stage 6: ruined base - grunts cluster in pairs at rubble chokepoints,
+    // turrets placed close together so their fire arcs overlap.
+    {
+      gruntSpawns: [
+        { x: 240, range: [200, 320] },
+        { x: 320, range: [240, 380] },
+        { x: 600, range: [560, 680] },
+        { x: 680, range: [600, 740] },
+        { x: 960, range: [900, 1040] },
+        { x: 1250, range: [1180, 1340] },
+        { x: 1330, range: [1240, 1400] },
+        { x: 1600, range: [1520, 1680] },
+        { x: 1900, range: [1820, 1980] },
+        { x: 1980, range: [1900, 2060] },
+        { x: 2260, range: [2180, 2340] },
+        { x: 2340, range: [2260, 2420] },
+      ],
+      turretSpawns: [
+        { x: 420, y: GROUND_Y - 40 },
+        { x: 500, y: GROUND_Y - 40 },
+        { x: 1200, y: GROUND_Y - 40 },
+        { x: 1850, y: GROUND_Y - 40 },
+        { x: 2300, y: GROUND_Y - 40 },
+      ],
+      chopperSpawns: [
+        { range: [200, 650], y: 80 },
+        { range: [700, 1150], y: 105 },
+        { range: [1200, 1700], y: 90 },
+        { range: [1750, 2200], y: 115 },
+        { range: [2100, 2500], y: 85 },
+      ],
+      fireRateMul: 1.94,
+      speedMul: 1.52,
+      theme: 'ruins',
+    },
+    // Stage 7: night thunderstorm - fewer ground changes, but six overlapping
+    // chopper patrol lanes stacked over most of the map.
+    {
+      gruntSpawns: [
+        { x: 260, range: [220, 360] },
+        { x: 520, range: [460, 600] },
+        { x: 780, range: [720, 880] },
+        { x: 1020, range: [960, 1120] },
+        { x: 1260, range: [1200, 1360] },
+        { x: 1500, range: [1440, 1600] },
+        { x: 1740, range: [1680, 1840] },
+        { x: 1980, range: [1920, 2080] },
+        { x: 2180, range: [2120, 2280] },
+        { x: 2320, range: [2260, 2400] },
+        { x: 2420, range: [2360, 2480] },
+        { x: 2500, range: [2440, 2560] },
+      ],
+      turretSpawns: [
+        { x: 440, y: GROUND_Y - 40 },
+        { x: 1100, y: GROUND_Y - 40 },
+        { x: 1700, y: GROUND_Y - 40 },
+        { x: 2150, y: GROUND_Y - 40 },
+        { x: 2450, y: GROUND_Y - 40 },
+      ],
+      chopperSpawns: [
+        { range: [200, 600], y: 75 },
+        { range: [500, 950], y: 105 },
+        { range: [1000, 1450], y: 85 },
+        { range: [1400, 1850], y: 115 },
+        { range: [1900, 2300], y: 90 },
+        { range: [2250, 2500], y: 120 },
+      ],
+      fireRateMul: 2.1,
+      speedMul: 1.6,
+      theme: 'storm',
+    },
+    // Stage 8: ruined base at night - chokepoint clusters and overlapping
+    // turret pairs combined for the toughest ground fight yet.
+    {
+      gruntSpawns: [
+        { x: 240, range: [200, 300] },
+        { x: 300, range: [240, 360] },
+        { x: 560, range: [500, 620] },
+        { x: 640, range: [560, 700] },
+        { x: 900, range: [840, 980] },
+        { x: 1160, range: [1080, 1240] },
+        { x: 1240, range: [1160, 1320] },
+        { x: 1500, range: [1420, 1580] },
+        { x: 1780, range: [1700, 1860] },
+        { x: 1860, range: [1780, 1940] },
+        { x: 2100, range: [2020, 2180] },
+        { x: 2300, range: [2220, 2380] },
+        { x: 2380, range: [2300, 2460] },
+      ],
+      turretSpawns: [
+        { x: 400, y: GROUND_Y - 40 },
+        { x: 480, y: GROUND_Y - 40 },
+        { x: 1200, y: GROUND_Y - 40 },
+        { x: 1750, y: GROUND_Y - 40 },
+        { x: 1830, y: GROUND_Y - 40 },
+        { x: 2320, y: GROUND_Y - 40 },
+      ],
+      chopperSpawns: [
+        { range: [200, 600], y: 80 },
+        { range: [650, 1050], y: 110 },
+        { range: [1100, 1550], y: 90 },
+        { range: [1600, 2000], y: 115 },
+        { range: [2000, 2400], y: 85 },
+        { range: [2250, 2500], y: 105 },
+      ],
+      fireRateMul: 2.26,
+      speedMul: 1.68,
+      theme: 'ruinsNight',
+    },
+    // Stage 9: deep night storm - heavy overlapping chopper lanes end to end
+    // plus the densest grunt count yet, moving fast.
+    {
+      gruntSpawns: [
+        { x: 220, range: [180, 300] },
+        { x: 300, range: [240, 360] },
+        { x: 520, range: [460, 600] },
+        { x: 760, range: [700, 840] },
+        { x: 840, range: [760, 900] },
+        { x: 1080, range: [1000, 1160] },
+        { x: 1320, range: [1240, 1400] },
+        { x: 1400, range: [1320, 1480] },
+        { x: 1620, range: [1540, 1700] },
+        { x: 1860, range: [1780, 1940] },
+        { x: 2080, range: [2000, 2160] },
+        { x: 2260, range: [2180, 2340] },
+        { x: 2360, range: [2280, 2440] },
+        { x: 2460, range: [2380, 2540] },
+      ],
+      turretSpawns: [
+        { x: 420, y: GROUND_Y - 40 },
+        { x: 1000, y: GROUND_Y - 40 },
+        { x: 1500, y: GROUND_Y - 40 },
+        { x: 1900, y: GROUND_Y - 40 },
+        { x: 2150, y: GROUND_Y - 40 },
+        { x: 2420, y: GROUND_Y - 40 },
+      ],
+      chopperSpawns: [
+        { range: [180, 550], y: 75 },
+        { range: [500, 900], y: 110 },
+        { range: [900, 1300], y: 85 },
+        { range: [1300, 1700], y: 115 },
+        { range: [1700, 2150], y: 90 },
+        { range: [2100, 2500], y: 120 },
+      ],
+      fireRateMul: 2.42,
+      speedMul: 1.76,
+      theme: 'storm2',
+    },
+    // Stage 10: final gauntlet - everything at once: tight chokepoint clusters,
+    // overlapping turret arcs, and a last dense wave guarding extraction.
+    {
+      gruntSpawns: [
+        { x: 220, range: [180, 300] },
+        { x: 300, range: [240, 360] },
+        { x: 520, range: [460, 600] },
+        { x: 600, range: [520, 660] },
+        { x: 840, range: [780, 900] },
+        { x: 1060, range: [1000, 1140] },
+        { x: 1140, range: [1060, 1220] },
+        { x: 1380, range: [1300, 1460] },
+        { x: 1600, range: [1520, 1680] },
+        { x: 1680, range: [1600, 1760] },
+        { x: 1900, range: [1820, 1980] },
+        { x: 2080, range: [2000, 2160] },
+        { x: 2260, range: [2180, 2340] },
+        { x: 2340, range: [2260, 2420] },
+        { x: 2440, range: [2360, 2520] },
+      ],
+      turretSpawns: [
+        { x: 400, y: GROUND_Y - 40 },
+        { x: 480, y: GROUND_Y - 40 },
+        { x: 1150, y: GROUND_Y - 40 },
+        { x: 1650, y: GROUND_Y - 40 },
+        { x: 2000, y: GROUND_Y - 40 },
+        { x: 2280, y: GROUND_Y - 40 },
+        { x: 2420, y: GROUND_Y - 40 },
+      ],
+      chopperSpawns: [
+        { range: [180, 550], y: 75 },
+        { range: [500, 900], y: 110 },
+        { range: [850, 1250], y: 85 },
+        { range: [1250, 1650], y: 115 },
+        { range: [1650, 2050], y: 90 },
+        { range: [2000, 2400], y: 120 },
+        { range: [2250, 2500], y: 80 },
+      ],
+      fireRateMul: 2.6,
+      speedMul: 1.85,
+      theme: 'gauntlet',
+    },
   ];
 
   function getStageConfig(stage) {
-    const idx = Math.min(Math.max(stage, 1), 3) - 1;
+    const idx = Math.min(Math.max(stage, 1), 10) - 1;
     const base = STAGE_CONFIGS[idx];
-    if (stage <= 3) return { ...base, fireRateMul: base.fireRateMul, speedMul: base.speedMul };
-    // Endless mode: stage 3's layout is the base, scaled smoothly harder each stage.
-    const scale = Math.min(1 + (stage - 3) * 0.12, 1.8);
+    if (stage <= 10) return { ...base, fireRateMul: base.fireRateMul, speedMul: base.speedMul };
+    // Endless mode: stage 10's layout is the base, scaled smoothly harder each stage.
+    const scale = Math.min(1 + (stage - 10) * 0.12, 1.8);
     return {
       ...base,
       fireRateMul: Math.min(base.fireRateMul * scale, 3),

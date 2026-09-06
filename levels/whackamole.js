@@ -5,7 +5,10 @@ function createWhackAMoleLevel(api) {
   const HOLE_R = 46;
   const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
   const MISS_LIMIT = 4;
-  const GAP_TIME = 0.35;
+  // Default gap between one mole and the next; individual stages can tighten
+  // (or ease) this via `gapTime` for pacing variety without changing the
+  // single-active-hole game loop structure.
+  const GAP_TIME_DEFAULT = 0.35;
 
   // Cheap per-stage palette shift (background/mound colors only) to sell "the
   // cabinet's come alive" - mirrors the day/dusk/night approach used by racing.js.
@@ -13,6 +16,13 @@ function createWhackAMoleLevel(api) {
     day: { bg: ['#241610', '#120a07'], mound: ['#1a0f08', '#4a2e1a'] },
     dusk: { bg: ['#2a1030', '#140818'], mound: ['#1a0a1c', '#4a2040'] },
     night: { bg: ['#0a1020', '#04060c'], mound: ['#0a0f1a', '#26304a'] },
+    neonpulse: { bg: ['#2a0a3a', '#12041c'], mound: ['#1c0828', '#5a1e6a'] },
+    inferno: { bg: ['#3a1005', '#180602'], mound: ['#2a0e04', '#7a3010'] },
+    toxic: { bg: ['#0a2a12', '#04140a'], mound: ['#0a1c0e', '#2a6a30'] },
+    aurora: { bg: ['#0a2a3a', '#04141c'], mound: ['#0a1c28', '#1e6a5a'] },
+    blackout: { bg: ['#050505', '#000000'], mound: ['#0a0a0a', '#2a2a2a'] },
+    gold: { bg: ['#3a2a05', '#181002'], mound: ['#2a1e04', '#7a5a10'] },
+    chrome: { bg: ['#141820', '#080a0e'], mound: ['#1a1e26', '#4a5568'] },
   };
 
   // Stage 1: the original default pacing.
@@ -22,15 +32,37 @@ function createWhackAMoleLevel(api) {
     { upTimeStart: 0.85, upTimeMin: 0.45, bombChanceBase: 0.28, bombChanceCap: 0.4, targetScore: 45, theme: 'dusk' },
     // Stage 3: faster still, higher bomb chance, higher target.
     { upTimeStart: 0.7, upTimeMin: 0.38, bombChanceBase: 0.34, bombChanceCap: 0.45, targetScore: 60, theme: 'night' },
+    // Stage 4: neon carnival wakes up - modestly faster than stage 3, and the
+    // gap before the next mole tightens a touch, the first taste of "rush" pacing.
+    { upTimeStart: 0.58, upTimeMin: 0.33, bombChanceBase: 0.38, bombChanceCap: 0.48, targetScore: 75, theme: 'neonpulse', gapTime: 0.3 },
+    // Stage 5: inferno - short reaction windows, gap tightened further for a
+    // "rush burst" feel where the next mole is primed almost as soon as you hit one.
+    { upTimeStart: 0.5, upTimeMin: 0.3, bombChanceBase: 0.41, bombChanceCap: 0.5, targetScore: 90, theme: 'inferno', gapTime: 0.26 },
+    // Stage 6: toxic - a small breather on the gap (slightly longer) so the
+    // rising bomb chance doesn't feel like pure gap-tightening escalation.
+    { upTimeStart: 0.44, upTimeMin: 0.28, bombChanceBase: 0.43, bombChanceCap: 0.5, targetScore: 105, theme: 'toxic', gapTime: 0.3 },
+    // Stage 7: aurora - tight windows return, deliberately punchy rush pacing.
+    { upTimeStart: 0.4, upTimeMin: 0.26, bombChanceBase: 0.45, bombChanceCap: 0.52, targetScore: 120, theme: 'aurora', gapTime: 0.22 },
+    // Stage 8: blackout - moles flicker up and down fast; up-time keeps shrinking
+    // while the gap eases slightly, trading "instant react" for "constant churn".
+    { upTimeStart: 0.36, upTimeMin: 0.24, bombChanceBase: 0.46, bombChanceCap: 0.53, targetScore: 135, theme: 'blackout', gapTime: 0.28 },
+    // Stage 9: gold rush - near the top of the hand-built curve, aggressive
+    // rush-burst gap with high bomb pressure, but still safely under the caps.
+    { upTimeStart: 0.33, upTimeMin: 0.22, bombChanceBase: 0.47, bombChanceCap: 0.54, targetScore: 150, theme: 'gold', gapTime: 0.2 },
+    // Stage 10: chrome finale - the hardest hand-built pacing: minimal
+    // breathing room between moles and the highest (still-capped) bomb chance.
+    { upTimeStart: 0.3, upTimeMin: 0.2, bombChanceBase: 0.48, bombChanceCap: 0.55, targetScore: 165, theme: 'chrome', gapTime: 0.18 },
   ];
 
+  const HAND_BUILT_STAGES = STAGE_CONFIGS.length; // 10
+
   function getStageConfig(stage) {
-    const idx = Math.min(Math.max(stage, 1), 3) - 1;
+    const idx = Math.min(Math.max(stage, 1), HAND_BUILT_STAGES) - 1;
     const base = STAGE_CONFIGS[idx];
-    if (stage <= 3) return base;
-    // Endless mode: stage 3's pacing is the base, scaled smoothly harder each stage,
-    // with hard caps so it never becomes unwinnable.
-    const scale = Math.min(1 + (stage - 3) * 0.12, 2.5);
+    if (stage <= HAND_BUILT_STAGES) return base;
+    // Endless mode: stage 10's pacing is the base, scaled smoothly harder each
+    // stage, with hard caps so it never becomes unwinnable.
+    const scale = Math.min(1 + (stage - HAND_BUILT_STAGES) * 0.12, 2.5);
     // Reuse the same (already-capped) scale to grow the target score, so the
     // level length plateaus alongside the difficulty instead of growing forever
     // (uncapped, +15/stage would reach 300+ by stage 20 for no extra challenge,
@@ -43,10 +75,11 @@ function createWhackAMoleLevel(api) {
       bombChanceCap: Math.min(0.55, base.bombChanceCap * Math.min(scale, 1.3)),
       targetScore: base.targetScore + Math.round(targetProgress * 15),
       theme: base.theme,
+      gapTime: Math.max(0.15, (base.gapTime || GAP_TIME_DEFAULT) / Math.min(scale, 1.2)),
     };
   }
 
-  let UP_TIME_START, UP_TIME_MIN, BOMB_CHANCE, BOMB_CHANCE_CAP, TARGET_SCORE, theme;
+  let UP_TIME_START, UP_TIME_MIN, BOMB_CHANCE, BOMB_CHANCE_CAP, TARGET_SCORE, GAP_TIME, theme;
 
   const holes = [];
   for (let r = 0; r < GRID; r++) {
