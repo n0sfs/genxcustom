@@ -26,6 +26,29 @@ function createCommandoLevel(api) {
   const RAPID_TIME = 6;
   const RAPID_DROP_CHANCE = 0.35;
 
+  // Cheap per-stage palette shift (background/scenery only) to sell "deeper into
+  // hostile territory" - mirrors the day/dusk/night approach used by racing.js.
+  const THEMES = {
+    day: {
+      sky: ['#15301f', '#0a1610'],
+      canopyDark: '#132419', canopyLight: '#1a2e1e',
+      foliageDark: '#1e3624', foliageLight: '#25402a',
+      ground: ['#3a4e30', '#1a2416'],
+    },
+    dusk: {
+      sky: ['#3a2a18', '#160e08'],
+      canopyDark: '#2a2014', canopyLight: '#332818',
+      foliageDark: '#3a2c16', foliageLight: '#46351c',
+      ground: ['#4a3c22', '#22190e'],
+    },
+    night: {
+      sky: ['#0d1620', '#04080c'],
+      canopyDark: '#0e1a16', canopyLight: '#16241c',
+      foliageDark: '#122a1c', foliageLight: '#1a3624',
+      ground: ['#1c2c1e', '#0a120c'],
+    },
+  };
+
   // Stage 1: the original default layout/pace.
   const STAGE_CONFIGS = [
     {
@@ -43,6 +66,7 @@ function createCommandoLevel(api) {
       ],
       fireRateMul: 1,
       speedMul: 1,
+      theme: 'day',
     },
     // Stage 2: more grunts, an extra turret and chopper, repositioned, faster fire.
     {
@@ -63,6 +87,7 @@ function createCommandoLevel(api) {
       ],
       fireRateMul: 1.25,
       speedMul: 1.15,
+      theme: 'dusk',
     },
     // Stage 3: dense/fast, plus an extra wave guarding the extraction point.
     {
@@ -91,6 +116,7 @@ function createCommandoLevel(api) {
       ],
       fireRateMul: 1.5,
       speedMul: 1.3,
+      theme: 'night',
     },
   ];
 
@@ -110,7 +136,7 @@ function createCommandoLevel(api) {
   const extraction = { x: WORLD_W - 70, y: GROUND_Y - 90, w: 50, h: 90 };
 
   let player, bullets, enemyBullets, grunts, turrets, choppers, crates, powerups, particles, popups, camX, extractionOpen;
-  let fireRateMul, speedMul;
+  let fireRateMul, speedMul, theme;
 
   function burst(x, y, color, n) {
     for (let i = 0; i < n; i++) {
@@ -129,6 +155,7 @@ function createCommandoLevel(api) {
       const cfg = getStageConfig(stage);
       fireRateMul = cfg.fireRateMul;
       speedMul = cfg.speedMul;
+      theme = THEMES[cfg.theme] || THEMES.day;
 
       player = {
         x: 40, y: GROUND_Y - 40, w: 20, h: 40,
@@ -306,19 +333,19 @@ function createCommandoLevel(api) {
     },
 
     draw(ctx) {
-      FX.gradientRect(ctx, 0, 0, W, H, '#15301f', '#0a1610');
+      FX.gradientRect(ctx, 0, 0, W, H, theme.sky[0], theme.sky[1]);
 
       for (let i = 0; i < 8; i++) {
         const px = (i * 260 - camX * 0.3) % (W + 260) - 130;
         const dark = i % 2 === 0;
-        ctx.fillStyle = dark ? '#132419' : '#1a2e1e';
+        ctx.fillStyle = dark ? theme.canopyDark : theme.canopyLight;
         ctx.beginPath();
         ctx.moveTo(px, GROUND_Y);
         ctx.lineTo(px + 40, GROUND_Y - 160);
         ctx.lineTo(px + 80, GROUND_Y);
         ctx.fill();
         // canopy foliage texture clumps
-        ctx.fillStyle = dark ? '#1e3624' : '#25402a';
+        ctx.fillStyle = dark ? theme.foliageDark : theme.foliageLight;
         ctx.beginPath();
         ctx.arc(px + 28, GROUND_Y - 96, 13, 0, Math.PI * 2);
         ctx.arc(px + 54, GROUND_Y - 118, 11, 0, Math.PI * 2);
@@ -331,8 +358,8 @@ function createCommandoLevel(api) {
       ctx.save();
       ctx.translate(-camX, 0);
 
-      FX.gradientRect(ctx, 0, GROUND_Y, WORLD_W, H - GROUND_Y, '#3a4e30', '#1a2416');
-      ctx.fillStyle = '#3a4e30';
+      FX.gradientRect(ctx, 0, GROUND_Y, WORLD_W, H - GROUND_Y, theme.ground[0], theme.ground[1]);
+      ctx.fillStyle = theme.ground[0];
       ctx.fillRect(0, GROUND_Y, WORLD_W, 4);
 
       // ground texture: scattered dirt/grass tufts along the visible strip

@@ -22,7 +22,10 @@ function createPatternPulseLevel(api) {
     // Endless mode: stage 4+.
     const n = s - 3;
     const speedScale = Math.min(1 + n * 0.12, 2.3); // cap ~2.3x faster than stage 3
-    const startLen = Math.min(5 + Math.floor(n * 0.6), 20); // cap so the watch phase stays sane
+    // Math.round (not floor) so stage 4 (n=1) already ticks startLen up past
+    // stage 3's baseline instead of repeating it verbatim — otherwise the
+    // first endless stage was a pure speed bump with zero length increase.
+    const startLen = Math.min(5 + Math.round(n * 0.6), 20); // cap so the watch phase stays sane
     const targetLen = Math.min(startLen + 12 + Math.floor(n * 1.0), 40);
 
     return {
@@ -42,6 +45,12 @@ function createPatternPulseLevel(api) {
 
   const NOTE = { up: 'hop', right: 'bounce', down: 'pickup', left: 'select' };
 
+  // Cheap per-stage "new place" cue: a very low-alpha color wash over the
+  // whole board that cycles through a small palette by stage number. Doesn't
+  // touch the quadrant colors themselves (those stay fixed so the direction
+  // mapping is never ambiguous), just tints the ambient lighting.
+  const STAGE_TINTS = ['#2a6bff', '#ff2a6b', '#2affb0', '#ffb02a', '#9d2aff', '#2affe0'];
+
   const QUADS = {
     up: { dir: 'up', color: '#28e0ff', tri: [TL, TR, C], label: [cx, 78] },
     right: { dir: 'right', color: '#39ff6a', tri: [TR, BR, C], label: [W - 78, cy] },
@@ -60,6 +69,7 @@ function createPatternPulseLevel(api) {
     return DIRS[Math.floor(Math.random() * DIRS.length)];
   }
 
+  let curStage = 1;
   let sequence, phase, prevKeys;
   let playbackIndex, playbackSub, playbackTimer, litQuad;
   let inputIndex, stepTimer, flashQuad, flashTimer;
@@ -87,6 +97,7 @@ function createPatternPulseLevel(api) {
 
   return {
     init(stage = 1) {
+      curStage = Math.max(1, Math.floor(stage) || 1);
       const cfg = computeStageConfig(stage);
       TARGET_LEN = cfg.targetLen;
       LIT_TIME = cfg.litTime;
@@ -253,6 +264,13 @@ function createPatternPulseLevel(api) {
         ctx.fill();
         ctx.restore();
       });
+
+      // ambient stage-tint wash — sells "you're somewhere new" each stage
+      // without touching the direction-color mapping above
+      ctx.globalAlpha = 0.07;
+      ctx.fillStyle = STAGE_TINTS[(curStage - 1) % STAGE_TINTS.length];
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalAlpha = 1;
 
       // center hub
       FX.shadow(ctx, cx, cy + 4, 26, 10, 0.35);

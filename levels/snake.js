@@ -6,14 +6,34 @@ function createSnakeLevel(api) {
   const ROWS = H / CELL;
   const BASE_STEP = 0.11;
   const MIN_STEP = 0.058;
-  const ABS_MIN_STEP = 0.03;
+  // Hard floor on tick period regardless of stage/speedMult. Endless mode's
+  // speedMult saturates by stage ~6 (see stageConfig), and length-based
+  // speedup saturates the tick rate to this floor shortly after that — so
+  // this constant is really "the fastest the game will ever move." At 0.03
+  // that was 33 ticks/sec (~1.8 frames at 60fps between moves): not just an
+  // early plateau but a ceiling fast enough to outrun realistic reaction
+  // time. 0.045 (~22 ticks/sec, ~2.7 frames) keeps endless mode tense while
+  // staying humanly reactable; stages 1-2 never approach this floor and
+  // stage 3 only grazes it in its last couple of food pickups.
+  const ABS_MIN_STEP = 0.045;
   const WIN_LENGTH = 16;
   const GOLDEN_LIFE = 4;
   const STREAK_WINDOW = 2.6;
   const ENDLESS_CAP = 2.6;
 
   let snake, dir, nextDir, food, timer, alive, golden, goldenTimer, eatStreak, streakTimer;
-  let walls, wallSet, inset, speedMult, winLength;
+  let walls, wallSet, inset, speedMult, winLength, theme;
+
+  // Cheap per-stage palette swap (background/grid/wall tint only — same
+  // draw calls, just different colors) so each hand-built stage reads as a
+  // different "place": a mellow meadow, then a warmer cavern once walls
+  // appear, then a cool neon night once the arena tightens up. Endless mode
+  // reuses the night palette since it's built on stage 3's layout.
+  const THEMES = {
+    meadow: { bg: '#08120a', grid: 'rgba(180,255,180,0.035)', wall: '#5a4a3a', inset: 'rgba(0,0,0,0.55)' },
+    cavern: { bg: '#140d08', grid: 'rgba(255,200,140,0.035)', wall: '#6b5636', inset: 'rgba(25,12,0,0.55)' },
+    night: { bg: '#05060f', grid: 'rgba(140,190,255,0.035)', wall: '#3d4568', inset: 'rgba(0,8,28,0.55)' },
+  };
 
   // A hollow-diamond cluster of wall cells centered on (cx, cy) — a
   // recognizable static obstacle shape, not just a random blob.
@@ -50,10 +70,10 @@ function createSnakeLevel(api) {
   function stageConfig(stage) {
     const s = Math.max(1, Math.floor(stage));
     if (s === 1) {
-      return { speedMult: 1, walls: [], inset: 0, winLength: WIN_LENGTH };
+      return { speedMult: 1, walls: [], inset: 0, winLength: WIN_LENGTH, theme: 'meadow' };
     }
     if (s === 2) {
-      return { speedMult: 1.25, walls: diamond(20, 12), inset: 0, winLength: WIN_LENGTH + 4 };
+      return { speedMult: 1.25, walls: diamond(20, 12), inset: 0, winLength: WIN_LENGTH + 4, theme: 'cavern' };
     }
     if (s === 3) {
       return {
@@ -61,6 +81,7 @@ function createSnakeLevel(api) {
         walls: [...diamond(10, 8), ...diamond(23, 16), { x: 16, y: 4 }, { x: 16, y: 19 }],
         inset: 2, // smaller effective play area — a 2-cell margin becomes solid
         winLength: WIN_LENGTH + 8,
+        theme: 'night',
       };
     }
     // Endless mode: stage 3 as the base, scaled continuously and capped so
@@ -73,6 +94,7 @@ function createSnakeLevel(api) {
       walls: scatterExtra(base, targetCount, 2),
       inset: 2,
       winLength: Math.min(WIN_LENGTH + 8 + Math.round((s - 3) * 2), 80),
+      theme: 'night',
     };
   }
 
@@ -130,6 +152,7 @@ function createSnakeLevel(api) {
       inset = cfg.inset;
       winLength = cfg.winLength;
       walls = cfg.walls;
+      theme = THEMES[cfg.theme];
       wallSet = new Set(walls.map((w) => w.x + ',' + w.y));
 
       const startY = Math.floor(ROWS / 2);
@@ -215,10 +238,10 @@ function createSnakeLevel(api) {
     },
 
     draw(ctx) {
-      ctx.fillStyle = '#08120a';
+      ctx.fillStyle = theme.bg;
       ctx.fillRect(0, 0, W, H);
 
-      ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+      ctx.strokeStyle = theme.grid;
       for (let x = 0; x <= COLS; x++) {
         ctx.beginPath(); ctx.moveTo(x * CELL, 0); ctx.lineTo(x * CELL, H); ctx.stroke();
       }
@@ -227,14 +250,14 @@ function createSnakeLevel(api) {
       }
 
       if (inset > 0) {
-        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillStyle = theme.inset;
         ctx.fillRect(0, 0, W, inset * CELL);
         ctx.fillRect(0, H - inset * CELL, W, inset * CELL);
         ctx.fillRect(0, 0, inset * CELL, H);
         ctx.fillRect(W - inset * CELL, 0, inset * CELL, H);
       }
       walls.forEach((wcell) => {
-        FX.bevelBlock(ctx, wcell.x * CELL + 1, wcell.y * CELL + 1, CELL - 2, CELL - 2, '#5a4a3a', 2);
+        FX.bevelBlock(ctx, wcell.x * CELL + 1, wcell.y * CELL + 1, CELL - 2, CELL - 2, theme.wall, 2);
       });
 
       const fcx = food.x * CELL + CELL / 2, fcy = food.y * CELL + CELL / 2;

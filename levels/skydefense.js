@@ -17,6 +17,18 @@ function createSkyDefenseLevel(api) {
 
   function dist(x1, y1, x2, y2) { return Math.hypot(x1 - x2, y1 - y2); }
 
+  // Cheap per-stage sky tint — same trick as racing.js's day/dusk/night, just two
+  // gradient stops swapped in draw(). The barrage getting visibly redder as stages
+  // climb sells "the siege is worsening" without touching any sprite.
+  const SKY_THEMES = [
+    ['#0a0a2a', '#04041a'], // stage 1: calm night
+    ['#1c1030', '#100819'], // stage 2: tense, faint alert-purple
+    ['#2a0f16', '#180810'], // stage 3+: under siege, warm red undertone
+  ];
+  function skyTheme(stage) {
+    return SKY_THEMES[Math.min(SKY_THEMES.length, Math.max(1, Math.floor(stage))) - 1];
+  }
+
   let cities, crosshair, fireCooldown, interceptors, blasts, missiles, particles, impacts, stars;
   let spawnTimer, elapsed, kills, nextSurvivalBonusAt;
   let currentStage = 1;
@@ -40,14 +52,25 @@ function createSkyDefenseLevel(api) {
       return { intervalBase: 1.1, intervalFloor: 0.32, speedBase: 74, speedVar: 26, speedRampCap: 110, target: 45, burstChance: 0.3 };
     }
     const scale = Math.min(2.5, 1 + (s - 3) * 0.12);
+    // intervalFloor and burstChance are deliberately frozen at stage 3's own values
+    // (not scaled further) rather than following `scale` like everything else here.
+    // FIRE_COOLDOWN never changes, so the player's max possible interception rate is
+    // fixed at ~1/0.35 ≈ 2.86/s; stage 3 already sustains missiles at ~2.63/s, right
+    // at that ceiling. Letting intervalFloor keep shrinking toward 0.18 and
+    // burstChance keep climbing toward 0.6 (as this used to do) pushes the sustained
+    // rate past 2.9/s as early as stage 4, and to ~4.5/s at the endless cap — past
+    // the point where intercepting everything is mathematically possible, not just
+    // hard. Freezing these two keeps the incoming *count* rate within reach forever,
+    // while intervalBase (faster ramp-up) and missile speed keep escalating so
+    // endless mode still gets meaningfully harder past stage 3.
     return {
       intervalBase: Math.max(0.5, 1.1 / scale),
-      intervalFloor: Math.max(0.18, 0.32 / scale),
+      intervalFloor: 0.32,
       speedBase: Math.min(74 * 2.2, 74 * scale),
       speedVar: Math.min(26 * 2.2, 26 * scale),
       speedRampCap: Math.min(110 * 2.2, 110 * scale),
       target: Math.round(45 + (s - 3) * 10),
-      burstChance: Math.min(0.6, 0.3 * scale),
+      burstChance: 0.3,
     };
   }
 
@@ -250,8 +273,9 @@ function createSkyDefenseLevel(api) {
     },
 
     draw(ctx) {
-      // night sky
-      FX.gradientRect(ctx, 0, 0, W, GROUND_Y, '#0a0a2a', '#04041a');
+      // night sky (tints redder in later stages — see skyTheme)
+      const sky = skyTheme(currentStage);
+      FX.gradientRect(ctx, 0, 0, W, GROUND_Y, sky[0], sky[1]);
       const t = Date.now() / 1000;
       stars.forEach((s) => {
         const tw = 0.5 + 0.5 * Math.sin(t * 2 + s.tw);

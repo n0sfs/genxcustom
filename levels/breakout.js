@@ -17,6 +17,18 @@ function createBreakoutLevel(api) {
   ];
   const COMBO_WINDOW = 0.9;
 
+  // cheap per-stage cabinet-glow tint so each stage reads as "somewhere new"
+  // without touching any gameplay or brick colors - stage 3's tint carries
+  // into endless mode, same as the layout it reuses
+  const BG_THEMES = {
+    1: ['#0c1712', '#03060a'], // dim workshop green
+    2: ['#0c1424', '#03060a'], // cool blue-violet
+    3: ['#1c0f14', '#050308'], // hot magenta-red - the toughest wall
+  };
+  function bgTheme(stageNum) {
+    return BG_THEMES[Math.min(Math.max(stageNum, 1), 3)];
+  }
+
   let paddle, balls, bricks, particles, powerups, wideTimer, slowTimer;
   let comboCount, comboTimer, popups;
   let curStage = 1;
@@ -38,8 +50,14 @@ function createBreakoutLevel(api) {
   function stageProgressCoeff(stageNum) {
     if (stageNum <= 1) return 0.35;
     if (stageNum === 2) return 0.42;
-    if (stageNum === 3) return 0.5;
-    return Math.min(0.5 + (stageNum - 3) * 0.03, 0.9);
+    // Stage 3 and every endless stage share this same "ball speeds up as the
+    // wall clears" coefficient. It must NOT keep climbing with `stageNum` -
+    // stageSpeedMult() already carries the endless-mode ramp (with its own
+    // explicit cap), so multiplying two independently-growing endless curves
+    // together would blow well past that cap: at stage ~16 a ball nearing a
+    // full clear would hit ~6x baseline speed instead of the intended ~3.2x,
+    // right as the player is about to win the stage.
+    return 0.5;
   }
 
   // ---- stage layouts: (row, col) grids that get turned into brick objects ----
@@ -376,7 +394,8 @@ function createBreakoutLevel(api) {
     },
 
     draw(ctx) {
-      FX.gradientRect(ctx, 0, 0, W, H, '#0c1712', '#03060a');
+      const [bgTop, bgBottom] = bgTheme(curStage);
+      FX.gradientRect(ctx, 0, 0, W, H, bgTop, bgBottom);
 
       // steel cabinet rails along the play boundary
       FX.chrome(ctx, 0, 0, 6, H);

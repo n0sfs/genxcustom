@@ -7,13 +7,21 @@ function createWhackAMoleLevel(api) {
   const MISS_LIMIT = 4;
   const GAP_TIME = 0.35;
 
+  // Cheap per-stage palette shift (background/mound colors only) to sell "the
+  // cabinet's come alive" - mirrors the day/dusk/night approach used by racing.js.
+  const THEMES = {
+    day: { bg: ['#241610', '#120a07'], mound: ['#1a0f08', '#4a2e1a'] },
+    dusk: { bg: ['#2a1030', '#140818'], mound: ['#1a0a1c', '#4a2040'] },
+    night: { bg: ['#0a1020', '#04060c'], mound: ['#0a0f1a', '#26304a'] },
+  };
+
   // Stage 1: the original default pacing.
   const STAGE_CONFIGS = [
-    { upTimeStart: 1.05, upTimeMin: 0.55, bombChanceBase: 0.2, bombChanceCap: 0.35, targetScore: 30 },
+    { upTimeStart: 1.05, upTimeMin: 0.55, bombChanceBase: 0.2, bombChanceCap: 0.35, targetScore: 30, theme: 'day' },
     // Stage 2: faster mole cycles, higher bomb chance from the start, higher target.
-    { upTimeStart: 0.85, upTimeMin: 0.45, bombChanceBase: 0.28, bombChanceCap: 0.4, targetScore: 45 },
+    { upTimeStart: 0.85, upTimeMin: 0.45, bombChanceBase: 0.28, bombChanceCap: 0.4, targetScore: 45, theme: 'dusk' },
     // Stage 3: faster still, higher bomb chance, higher target.
-    { upTimeStart: 0.7, upTimeMin: 0.38, bombChanceBase: 0.34, bombChanceCap: 0.45, targetScore: 60 },
+    { upTimeStart: 0.7, upTimeMin: 0.38, bombChanceBase: 0.34, bombChanceCap: 0.45, targetScore: 60, theme: 'night' },
   ];
 
   function getStageConfig(stage) {
@@ -23,16 +31,22 @@ function createWhackAMoleLevel(api) {
     // Endless mode: stage 3's pacing is the base, scaled smoothly harder each stage,
     // with hard caps so it never becomes unwinnable.
     const scale = Math.min(1 + (stage - 3) * 0.12, 2.5);
+    // Reuse the same (already-capped) scale to grow the target score, so the
+    // level length plateaus alongside the difficulty instead of growing forever
+    // (uncapped, +15/stage would reach 300+ by stage 20 for no extra challenge,
+    // since upTime/bombChance are already maxed out well before that point).
+    const targetProgress = (scale - 1) / 0.12;
     return {
       upTimeStart: Math.max(0.25, base.upTimeStart / scale),
       upTimeMin: Math.max(0.18, base.upTimeMin / scale),
       bombChanceBase: Math.min(0.5, base.bombChanceBase * Math.min(scale, 1.4)),
       bombChanceCap: Math.min(0.55, base.bombChanceCap * Math.min(scale, 1.3)),
-      targetScore: base.targetScore + Math.round((stage - 3) * 15),
+      targetScore: base.targetScore + Math.round(targetProgress * 15),
+      theme: base.theme,
     };
   }
 
-  let UP_TIME_START, UP_TIME_MIN, BOMB_CHANCE, BOMB_CHANCE_CAP, TARGET_SCORE;
+  let UP_TIME_START, UP_TIME_MIN, BOMB_CHANCE, BOMB_CHANCE_CAP, TARGET_SCORE, theme;
 
   const holes = [];
   for (let r = 0; r < GRID; r++) {
@@ -76,6 +90,7 @@ function createWhackAMoleLevel(api) {
       BOMB_CHANCE = cfg.bombChanceBase;
       BOMB_CHANCE_CAP = cfg.bombChanceCap;
       TARGET_SCORE = cfg.targetScore;
+      theme = THEMES[cfg.theme] || THEMES.day;
 
       score = 0;
       misses = 0;
@@ -167,7 +182,7 @@ function createWhackAMoleLevel(api) {
     },
 
     draw(ctx) {
-      FX.gradientRect(ctx, 0, 0, W, H, '#241610', '#120a07');
+      FX.gradientRect(ctx, 0, 0, W, H, theme.bg[0], theme.bg[1]);
 
       // wood-plank backdrop texture
       ctx.strokeStyle = 'rgba(0,0,0,0.22)';
@@ -190,8 +205,8 @@ function createWhackAMoleLevel(api) {
       holes.forEach((h, i) => {
         FX.shadow(ctx, h.x, h.y + 22, HOLE_R * 0.9, HOLE_R * 0.35, 0.4);
         const moundGrad = ctx.createRadialGradient(h.x, h.y + 8, 4, h.x, h.y + 14, HOLE_R);
-        moundGrad.addColorStop(0, '#1a0f08');
-        moundGrad.addColorStop(1, '#4a2e1a');
+        moundGrad.addColorStop(0, theme.mound[0]);
+        moundGrad.addColorStop(1, theme.mound[1]);
         ctx.fillStyle = moundGrad;
         ctx.beginPath();
         ctx.ellipse(h.x, h.y + 14, HOLE_R, HOLE_R * 0.5, 0, 0, Math.PI * 2);

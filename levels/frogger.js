@@ -36,6 +36,7 @@ function createFroggerLevel(api) {
     hazard: null,
     goalCols: [2, 8, 13],
     timeLimit: 25,
+    theme: 'day',
   };
   const STAGE_2 = {
     road: [
@@ -53,6 +54,7 @@ function createFroggerLevel(api) {
     hazard: null,
     goalCols: [1, 6, 10, 14],
     timeLimit: 20,
+    theme: 'dusk',
   };
   const STAGE_3 = {
     road: [
@@ -72,6 +74,7 @@ function createFroggerLevel(api) {
     hazard: { row: 6, speed: 160, dir: 1, gap: 130, w: 30 },
     goalCols: [1, 5, 8, 11, 14],
     timeLimit: 16,
+    theme: 'night',
   };
 
   function getStageConfig(stage) {
@@ -82,19 +85,65 @@ function createFroggerLevel(api) {
     // Endless mode: stage 3's layout scaled smoothly harder, capped so it
     // never becomes unfair even deep into a long run.
     const scale = Math.min(2.6, 1 + (stage - 3) * 0.12);
-    const scaleLane = (l) => ({
+    // Road/hazard lanes are a hard rects-overlap hazard: the frog needs a
+    // real gap (gap - w) at least as wide as itself to have any surviving
+    // spot at all. A flat gap floor (independent of car width) used to let
+    // wide-car lanes shrink below that threshold at high endless stages,
+    // making the lane mathematically uncrossable forever after (the
+    // "free" pocket between cars was narrower than the frog itself, so no
+    // position/timing could ever avoid overlap). Floor the gap relative to
+    // each lane's own car width instead, so a genuinely passable pocket
+    // always exists no matter how deep the run goes.
+    const scaleRoadLane = (l) => {
+      const natural = l.gap / Math.sqrt(scale);
+      const minGap = l.w + FROG_SIZE + 14;
+      return { ...l, speed: l.speed * scale, gap: Math.max(minGap, natural) };
+    };
+    const scaleRiverLane = (l) => ({
       ...l,
       speed: l.speed * scale,
       gap: Math.max(70, l.gap / Math.sqrt(scale)),
     });
     return {
-      road: STAGE_3.road.map(scaleLane),
-      river: STAGE_3.river.map(scaleLane),
-      hazard: STAGE_3.hazard ? scaleLane(STAGE_3.hazard) : null,
+      road: STAGE_3.road.map(scaleRoadLane),
+      river: STAGE_3.river.map(scaleRiverLane),
+      hazard: STAGE_3.hazard ? scaleRoadLane(STAGE_3.hazard) : null,
       goalCols: STAGE_3.goalCols,
       timeLimit: Math.max(10, STAGE_3.timeLimit - (stage - 3) * 0.6),
+      theme: STAGE_3.theme,
     };
   }
+
+  // Cheap per-stage lighting pass: same terrain layout, different palette,
+  // so each stage reads as "somewhere new" without redrawing anything.
+  // Endless mode reuses stage 3's (night) theme since it reuses stage 3's
+  // layout wholesale.
+  const THEMES = {
+    day: {
+      sky: ['#0f4a20', '#08260f'],
+      bank: ['#25804a', '#164e2c'],
+      water: ['#2a6aba', '#123a6a'],
+      median: ['#357d3a', '#1c4a20'],
+      road: ['#3a3a3a', '#1c1c1c'],
+      start: ['#357d3a', '#1c4a20'],
+    },
+    dusk: {
+      sky: ['#4a3420', '#24170d'],
+      bank: ['#7a5a2a', '#4a3418'],
+      water: ['#4a3a7a', '#221a3e'],
+      median: ['#6a4a24', '#3a2712'],
+      road: ['#4a3a3a', '#241c1c'],
+      start: ['#6a4a24', '#3a2712'],
+    },
+    night: {
+      sky: ['#0a1a2a', '#050d14'],
+      bank: ['#123a4a', '#0a1c24'],
+      water: ['#0a1a3a', '#04091c'],
+      median: ['#123018', '#08170c'],
+      road: ['#1c1c2a', '#0c0c14'],
+      start: ['#123a24', '#081c12'],
+    },
+  };
 
   function wrap(x) {
     let v = (x + 200) % SPAN;
@@ -118,7 +167,7 @@ function createFroggerLevel(api) {
   }
 
   let TIME_LIMIT = 25;
-  let frog, prevKeys, hopTimer, roads, rivers, goalsFilled, bestRow, timeLeft, fly, flyTimer, flyLife, waterTime, speedMul, nearMissTimer, hasHazardLane;
+  let frog, prevKeys, hopTimer, roads, rivers, goalsFilled, bestRow, timeLeft, fly, flyTimer, flyLife, waterTime, speedMul, nearMissTimer, hasHazardLane, theme;
 
   function drawFrog(ctx, f) {
     const cx = f.x + f.w / 2, cy = f.y + f.h / 2;
@@ -207,6 +256,7 @@ function createFroggerLevel(api) {
       GOAL_COLS = cfg.goalCols;
       TIME_LIMIT = cfg.timeLimit;
       hasHazardLane = !!cfg.hazard;
+      theme = THEMES[cfg.theme] || THEMES.day;
 
       frog = { col: START_COL, row: START_ROW, x: START_COL * CELL + FROG_OFF, y: START_ROW * CELL + FROG_OFF, w: FROG_SIZE, h: FROG_SIZE };
       prevKeys = {};
@@ -367,9 +417,9 @@ function createFroggerLevel(api) {
     draw(ctx) {
       waterTime += 1 / 60;
 
-      FX.gradientRect(ctx, 0, 0, W, GOAL_ROW * CELL + CELL, '#0f4a20', '#08260f');
+      FX.gradientRect(ctx, 0, 0, W, GOAL_ROW * CELL + CELL, theme.sky[0], theme.sky[1]);
 
-      FX.gradientRect(ctx, 0, GOAL_ROW * CELL, W, CELL, '#25804a', '#164e2c');
+      FX.gradientRect(ctx, 0, GOAL_ROW * CELL, W, CELL, theme.bank[0], theme.bank[1]);
       GOAL_COLS.forEach((gc, i) => {
         const gcx = gc * CELL + CELL / 2, gcy = GOAL_ROW * CELL + CELL / 2;
         FX.shadow(ctx, gcx, gcy + 12, 15, 3, 0.2);
@@ -388,7 +438,7 @@ function createFroggerLevel(api) {
         ctx.stroke();
       });
 
-      FX.gradientRect(ctx, 0, 2 * CELL, W, 4 * CELL, '#2a6aba', '#123a6a');
+      FX.gradientRect(ctx, 0, 2 * CELL, W, 4 * CELL, theme.water[0], theme.water[1]);
       // water-ripple texture: a handful of drifting highlight arcs, cheap per frame
       ctx.strokeStyle = 'rgba(255,255,255,0.10)';
       ctx.lineWidth = 1;
@@ -422,10 +472,10 @@ function createFroggerLevel(api) {
         ctx.fillStyle = 'rgba(255,200,40,0.3)';
         for (let tx = 4; tx < W; tx += 16) ctx.fillRect(tx, 6 * CELL + CELL / 2 - 1, 8, 3);
       } else {
-        FX.gradientRect(ctx, 0, 6 * CELL, W, CELL, '#357d3a', '#1c4a20');
+        FX.gradientRect(ctx, 0, 6 * CELL, W, CELL, theme.median[0], theme.median[1]);
       }
 
-      FX.gradientRect(ctx, 0, 7 * CELL, W, 4 * CELL, '#3a3a3a', '#1c1c1c');
+      FX.gradientRect(ctx, 0, 7 * CELL, W, 4 * CELL, theme.road[0], theme.road[1]);
       // dashed lane-divider markings between the four road rows
       ctx.strokeStyle = 'rgba(255,220,120,0.35)';
       ctx.lineWidth = 2;
@@ -441,7 +491,7 @@ function createFroggerLevel(api) {
         lane.items.forEach((c) => drawCar(ctx, c, lane.dir));
       });
 
-      FX.gradientRect(ctx, 0, 11 * CELL, W, CELL, '#357d3a', '#1c4a20');
+      FX.gradientRect(ctx, 0, 11 * CELL, W, CELL, theme.start[0], theme.start[1]);
       ctx.fillStyle = 'rgba(0,0,0,0.15)';
       for (let tx = 6; tx < W; tx += 22) ctx.fillRect(tx, 11 * CELL + CELL - 5, 2, 4);
 

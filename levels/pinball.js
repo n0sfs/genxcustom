@@ -133,6 +133,18 @@ function createPinballLevel(api) {
   const START_POS = { x: 590, y: 430 };
   const COMBO_WINDOW = 1.3;
 
+  // cheap per-stage felt tint so each table reads as "somewhere new" without
+  // touching bumper/target colors or any physics - stage 3's tint carries
+  // into endless mode, same as the layout it reuses
+  const PLAYFIELD_THEMES = {
+    1: ['#1e2038', '#12121e'], // cool blue-violet (original)
+    2: ['#182a2c', '#0e1818'], // teal-green
+    3: ['#2a1420', '#160810'], // deep red - the toughest table
+  };
+  function playfieldTheme(stageNum) {
+    return PLAYFIELD_THEMES[Math.min(Math.max(stageNum, 1), 3)];
+  }
+
   let balls, score, comboCount, comboTimer, popups, targets, bumpers, walls;
   let wallCooldown = 0;
   let plungerCharge = 0;
@@ -503,7 +515,8 @@ function createPinballLevel(api) {
       ctx.fillStyle = '#0a0a14';
       ctx.fillRect(0, 0, W, H);
 
-      FX.gradientRect(ctx, 20, 8, 600, 462, '#1e2038', '#12121e');
+      const [feltTop, feltBottom] = playfieldTheme(curStage);
+      FX.gradientRect(ctx, 20, 8, 600, 462, feltTop, feltBottom);
 
       // faint brushed-felt streaks across the playfield
       ctx.strokeStyle = 'rgba(255,255,255,0.03)';

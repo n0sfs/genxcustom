@@ -87,6 +87,7 @@ function createZeldaLevel(api) {
     bossSpreadEnraged: [-0.5, -0.25, 0, 0.25, 0.5],
     bossExtraBurst: false, bossBurstCount: 0, bossShotSpeed: 170,
     enemySpeedMul: 1, enemyFireMul: 1,
+    theme: 'stone',
   };
 
   // Stage 2: the loop collapses into a single central crossroads chokepoint
@@ -123,6 +124,7 @@ function createZeldaLevel(api) {
     bossSpreadEnraged: [-0.55, -0.3, -0.1, 0.1, 0.3, 0.55],
     bossExtraBurst: true, bossBurstCount: 8, bossShotSpeed: 185,
     enemySpeedMul: 1.25, enemyFireMul: 0.85,
+    theme: 'moss',
   };
 
   // Stage 3: an asymmetric layout — a single off-center horizontal doorway
@@ -166,6 +168,7 @@ function createZeldaLevel(api) {
     bossSpreadEnraged: [-0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6],
     bossExtraBurst: true, bossBurstCount: 12, bossShotSpeed: 200,
     enemySpeedMul: 1.5, enemyFireMul: 0.7,
+    theme: 'ember',
   };
 
   function getStageConfig(stage) {
@@ -194,12 +197,23 @@ function createZeldaLevel(api) {
       bossShotSpeed: Math.min(320, STAGE_3.bossShotSpeed * speedScale),
       enemySpeedMul: Math.min(2.6, STAGE_3.enemySpeedMul * scale),
       enemyFireMul: Math.max(0.35, STAGE_3.enemyFireMul / Math.min(1.8, scale)),
+      theme: STAGE_3.theme,
     };
   }
 
+  // Cheap per-stage lighting pass: same brick geometry, different palette,
+  // so each stage's dungeon reads as "somewhere new" without redrawing
+  // anything. Endless mode reuses stage 3's (ember) theme since it reuses
+  // stage 3's layout wholesale.
+  const THEMES = {
+    stone: { floor: ['#463824', '#2e2414'], wall: '#6b4a2a', torch: [255, 200, 100], flameCore: '#fff6c8', flameMid: '#ffb347', flameEdge: '#c23c1a' },
+    moss: { floor: ['#39402a', '#20261a'], wall: '#5a6a3a', torch: [220, 235, 130], flameCore: '#f4ffc8', flameMid: '#b8d24f', flameEdge: '#4a7a1a' },
+    ember: { floor: ['#442418', '#26120c'], wall: '#7a3d28', torch: [255, 150, 70], flameCore: '#fff0c8', flameMid: '#ff8a3a', flameEdge: '#c21a1a' },
+  };
+
   let player, enemies, projectiles, camX, camY, goal, goalActive, particles, hearts, boss, bossSpawned, torchTime, killStreak, tookDamage;
   let walls, BOSS_HP, enemySpeedMul, enemyFireMul, bossChargeNormal, bossChargeEnraged,
-    bossSpreadNormal, bossSpreadEnraged, bossExtraBurst, bossBurstCount, bossShotSpeed;
+    bossSpreadNormal, bossSpreadEnraged, bossExtraBurst, bossBurstCount, bossShotSpeed, theme;
 
   // Fixed decorative wall torches for dungeon atmosphere (purely cosmetic).
   const torches = [
@@ -325,6 +339,7 @@ function createZeldaLevel(api) {
       bossShotSpeed = cfg.bossShotSpeed;
       enemySpeedMul = cfg.enemySpeedMul;
       enemyFireMul = cfg.enemyFireMul;
+      theme = THEMES[cfg.theme] || THEMES.stone;
 
       player = {
         x: 110, y: ROOM_H / 2 - 13, w: 24, h: 26,
@@ -537,7 +552,7 @@ function createZeldaLevel(api) {
       ctx.save();
       ctx.translate(-camX, -camY);
 
-      FX.gradientRect(ctx, 0, 0, WORLD_W, WORLD_H, '#463824', '#2e2414');
+      FX.gradientRect(ctx, 0, 0, WORLD_W, WORLD_H, theme.floor[0], theme.floor[1]);
 
       // stone-brick floor texture: coursing seams offset every other row,
       // limited to the visible viewport so cost stays flat regardless of world size
@@ -561,7 +576,7 @@ function createZeldaLevel(api) {
       }
 
       walls.forEach((w) => {
-        FX.bevelRect(ctx, w.x, w.y, w.w, w.h, '#6b4a2a', 3);
+        FX.bevelRect(ctx, w.x, w.y, w.w, w.h, theme.wall, 3);
         ctx.strokeStyle = 'rgba(0,0,0,0.45)';
         ctx.lineWidth = 1.5;
         ctx.strokeRect(w.x + 0.75, w.y + 0.75, w.w - 1.5, w.h - 1.5);
@@ -585,9 +600,10 @@ function createZeldaLevel(api) {
       // wall-mounted torches for warm dungeon atmosphere
       torches.forEach((t, i) => {
         const flicker = 0.75 + Math.sin(torchTime * 9 + i * 2.3) * 0.15 + Math.sin(torchTime * 23 + i) * 0.06;
+        const [tr, tg, tb] = theme.torch;
         const glow = ctx.createRadialGradient(t.x, t.y, 2, t.x, t.y, 46 * flicker);
-        glow.addColorStop(0, `rgba(255, 200, 100, ${0.42 * flicker})`);
-        glow.addColorStop(1, 'rgba(255, 150, 40, 0)');
+        glow.addColorStop(0, `rgba(${tr}, ${tg}, ${tb}, ${0.42 * flicker})`);
+        glow.addColorStop(1, `rgba(${tr}, ${tg}, ${tb}, 0)`);
         ctx.fillStyle = glow;
         ctx.beginPath();
         ctx.arc(t.x, t.y, 46 * flicker, 0, Math.PI * 2);
@@ -595,9 +611,9 @@ function createZeldaLevel(api) {
         ctx.fillStyle = '#2a1a10';
         ctx.fillRect(t.x - 3, t.y - 2, 6, 10);
         const flameGrad = ctx.createRadialGradient(t.x, t.y - 6, 1, t.x, t.y - 6, 8 * flicker);
-        flameGrad.addColorStop(0, '#fff6c8');
-        flameGrad.addColorStop(0.5, '#ffb347');
-        flameGrad.addColorStop(1, '#c23c1a');
+        flameGrad.addColorStop(0, theme.flameCore);
+        flameGrad.addColorStop(0.5, theme.flameMid);
+        flameGrad.addColorStop(1, theme.flameEdge);
         ctx.fillStyle = flameGrad;
         ctx.beginPath();
         ctx.ellipse(t.x, t.y - 6 - flicker, 4 * flicker, 7 * flicker, 0, 0, Math.PI * 2);

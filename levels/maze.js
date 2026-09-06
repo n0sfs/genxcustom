@@ -111,13 +111,43 @@ function createMazeLevel(api) {
   // Stage-baseline speed multiplier: stages 1-3 step the ghosts up as more of
   // them join the chase; stage 4+ ("endless") keeps stage 3's full roster but
   // keeps scaling smoothly on top, capped so it never becomes unbeatable.
+  //
+  // Ghosts chase with a real (greedy-nearest) heuristic, not a random patrol,
+  // so ghost speed relative to the player's fixed 4.4 cells/s matters a lot
+  // more here than a raw multiplier suggests. At stage 3's baseline (x1.25)
+  // the fastest ghost (baseSpeed 4.0) is already at 5.0, ~14% faster than the
+  // player — a fitting "hardest hand-built stage" bite. The old endless
+  // formula (rate 0.12, inner cap 2.4, outer cap 3.0) compounded on top of
+  // that and reached x3.0 by stage ~15, putting the fastest ghost at 12.0
+  // cells/s — 2.7x the player's speed before the within-stage "board is
+  // clearing out" ramp (up to another x1.35) pushes it past 3.6x. Combined
+  // with dead-end corridors, that's not "hard", it's uncatchable. Capping the
+  // endless scale at x1.6 (product x2.0) keeps the fastest ghost at ~1.8x
+  // player speed at the plateau (~2.45x during the endgame ramp), still a
+  // real threat but not a guaranteed corner, and reaches that plateau at
+  // stage ~15 so it keeps climbing through the whole endless range instead
+  // of flatlining by stage 6-7.
   function stageSpeedMult(stage) {
     if (stage <= 1) return 1;
     if (stage === 2) return 1.12;
     if (stage === 3) return 1.25;
-    const endlessScale = Math.min(1 + (stage - 3) * 0.12, 2.4);
-    return Math.min(1.25 * endlessScale, 3.0);
+    const endlessScale = Math.min(1 + (stage - 3) * 0.05, 1.6);
+    return 1.25 * endlessScale;
   }
+
+  // Cheap per-stage palette shift for the wall blocks + backdrop — the maze
+  // shape itself already differs a lot stage to stage (corner-seeded, then
+  // center-seeded, then mirrored-symmetric), so this is just a light color
+  // wash on top of the existing wall/background draw calls (no new geometry)
+  // to reinforce "somewhere new", the same idea as the racing level's
+  // day/dusk/night themes. Stage 4+ (endless) reuses stage 3's palette, same
+  // as it reuses stage 3's ghost roster.
+  const STAGE_THEMES = [
+    { bg: '#050510', wall: '#2a2f6d' },
+    { bg: '#120616', wall: '#5a2f6d' },
+    { bg: '#03120c', wall: '#1f6d4a' },
+  ];
+  function themeForStage(stage) { return STAGE_THEMES[Math.min(Math.max(stage, 1), 3) - 1]; }
 
   function ghostCountForStage(stage) {
     if (stage <= 1) return 2;
@@ -201,6 +231,8 @@ function createMazeLevel(api) {
         dots.delete('1,13');
         dots.delete('17,1');
         dots.delete('9,7');
+        dots.delete('13,7');
+        dots.delete('5,7');
 
         powerPellets = new Set();
         POWER_CELLS.forEach(([c, r]) => {
@@ -332,14 +364,15 @@ function createMazeLevel(api) {
     },
 
     draw(ctx) {
-      ctx.fillStyle = '#050510';
+      const theme = themeForStage(currentStage);
+      ctx.fillStyle = theme.bg;
       ctx.fillRect(0, 0, W, H);
 
       for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
           if (grid[r][c] === 1) {
             const bx = OX + c * CELL, by = OY + r * CELL;
-            FX.bevelBlock(ctx, bx, by, CELL, CELL, '#2a2f6d', 2);
+            FX.bevelBlock(ctx, bx, by, CELL, CELL, theme.wall, 2);
             // faint panel-line detail so wall blocks read as machined metal panels
             ctx.strokeStyle = 'rgba(255,255,255,0.06)';
             ctx.lineWidth = 1;

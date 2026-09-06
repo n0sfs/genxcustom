@@ -161,7 +161,19 @@ function createPlatformerLevel(api) {
     };
   }
 
-  let platforms, coins, enemySpawns, WORLD_END, flag; // eslint-disable-line no-unused-vars
+  // Cheap per-stage lighting shift (day -> dusk -> night), the same idea the
+  // racing level uses for its sky/road themes: recolor the existing sky +
+  // mountain gradients only, no new geometry, so each stage reads as a new
+  // place without touching gameplay. Stage 4+ (endless) reuses stage 3's
+  // night palette, same as it reuses stage 3's layout.
+  const STAGE_THEMES = [
+    { sky: '#0c1424', mtnTop: '#2a5f8a', mtnBot: '#0e2438', mtnGlow: 'rgba(255,255,255,0.08)' },
+    { sky: '#221a30', mtnTop: '#7a4a6a', mtnBot: '#1c1128', mtnGlow: 'rgba(255,196,140,0.12)' },
+    { sky: '#080a16', mtnTop: '#182444', mtnBot: '#04060c', mtnGlow: 'rgba(180,200,255,0.10)' },
+  ];
+  function themeForStage(stage) { return STAGE_THEMES[Math.min(Math.max(stage, 1), 3) - 1]; }
+
+  let platforms, coins, WORLD_END, flag;
   let player, camX, enemies, coinList, onGround, spawnX, spawnY, particles, jumpKeyPrev;
   let currentStage, checkpoint, coyoteTimer, jumpBufferTimer, stompChain;
 
@@ -404,12 +416,13 @@ function createPlatformerLevel(api) {
     },
 
     draw(ctx) {
-      ctx.fillStyle = '#0c1424';
+      const theme = themeForStage(currentStage);
+      ctx.fillStyle = theme.sky;
       ctx.fillRect(0, 0, W, H);
 
       const mtnGrad = ctx.createLinearGradient(0, H - 120, 0, H);
-      mtnGrad.addColorStop(0, '#2a5f8a');
-      mtnGrad.addColorStop(1, '#0e2438');
+      mtnGrad.addColorStop(0, theme.mtnTop);
+      mtnGrad.addColorStop(1, theme.mtnBot);
       ctx.fillStyle = mtnGrad;
       for (let i = 0; i < 6; i++) {
         const px = (i * 220 - camX * 0.3) % (W + 200) - 100;
@@ -418,7 +431,7 @@ function createPlatformerLevel(api) {
         ctx.lineTo(px + 60, H - 120);
         ctx.lineTo(px + 120, H);
         ctx.fill();
-        ctx.fillStyle = 'rgba(255,255,255,0.08)';
+        ctx.fillStyle = theme.mtnGlow;
         ctx.beginPath();
         ctx.moveTo(px + 60, H - 120);
         ctx.lineTo(px + 72, H - 96);

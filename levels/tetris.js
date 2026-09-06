@@ -58,21 +58,31 @@ function createTetrisLevel(api) {
 
   let board, piece, nextType, bag, fallTimer, fallInterval, linesCleared, particles, combo;
   let leftPrev, rightPrev, leftHeld, rightHeld, leftRepeat, rightRepeat, rotPrev, dropPrev;
-  let baseFallInterval, targetLines;
+  let baseFallInterval, targetLines, theme;
 
-  const GARBAGE_COLOR = '#4a4a5e';
+  // Cheap per-stage palette swap (backdrop/board/grid/garbage tint only —
+  // same draw calls, just different colors) so the cabinet reads as a
+  // different "cabinet mood" per stage: cool and calm with no garbage yet,
+  // then a warmer tone once garbage rows appear, then a hotter/redder tone
+  // once the stack is genuinely dangerous. Endless mode reuses the stage-3
+  // (danger) palette since it's built on stage 3's setup.
+  const THEMES = {
+    calm: { bg: '#0a0a14', board: '#12121e', grid: 'rgba(255,255,255,0.04)', garbage: '#4a4a5e' },
+    dusk: { bg: '#120a12', board: '#1a121c', grid: 'rgba(255,210,255,0.04)', garbage: '#5a3a56' },
+    danger: { bg: '#140808', board: '#1e1010', grid: 'rgba(255,170,140,0.04)', garbage: '#6e3a3a' },
+  };
 
   // Pre-placed "garbage" rows for the bottom of the board — each one full
   // except for a single random gap, so it's a genuine obstacle (must be
   // maneuvered around) rather than free lines. Leaves the top few rows
   // clear so a piece always has room to spawn.
-  function buildGarbageRows(count) {
+  function buildGarbageRows(count, color) {
     const rows = Array.from({ length: ROWS }, () => new Array(COLS).fill(null));
     const safeCount = Math.min(count, ROWS - 6);
     for (let i = 0; i < safeCount; i++) {
       const r = ROWS - 1 - i;
       const gap = Math.floor(Math.random() * COLS);
-      rows[r] = Array.from({ length: COLS }, (_, c) => (c === gap ? null : GARBAGE_COLOR));
+      rows[r] = Array.from({ length: COLS }, (_, c) => (c === gap ? null : color));
     }
     return rows;
   }
@@ -83,19 +93,20 @@ function createTetrisLevel(api) {
   function stageConfig(stage) {
     const s = Math.max(1, Math.floor(stage));
     if (s === 1) {
-      return { speedMult: 1, garbageRows: 0, targetLines: TARGET_LINES };
+      return { speedMult: 1, garbageRows: 0, targetLines: TARGET_LINES, theme: 'calm' };
     }
     if (s === 2) {
-      return { speedMult: 1.2, garbageRows: 3, targetLines: TARGET_LINES + 4 };
+      return { speedMult: 1.2, garbageRows: 3, targetLines: TARGET_LINES + 4, theme: 'dusk' };
     }
     if (s === 3) {
-      return { speedMult: 1.45, garbageRows: 6, targetLines: TARGET_LINES + 8 };
+      return { speedMult: 1.45, garbageRows: 6, targetLines: TARGET_LINES + 8, theme: 'danger' };
     }
     const scale = Math.min(1 + (s - 3) * 0.12, ENDLESS_CAP);
     return {
       speedMult: Math.min(1.45 * scale, 3), // absolute cap: never faster than 3x stage-1 speed
       garbageRows: Math.min(Math.round(6 * scale), ROWS - 6),
       targetLines: Math.min(TARGET_LINES + 8 + Math.round((s - 3) * 2), 60),
+      theme: 'danger',
     };
   }
 
@@ -267,8 +278,9 @@ function createTetrisLevel(api) {
       const cfg = stageConfig(stage);
       baseFallInterval = Math.max(MIN_FALL_INTERVAL, BASE_FALL_INTERVAL / cfg.speedMult);
       targetLines = cfg.targetLines;
+      theme = THEMES[cfg.theme];
       board = cfg.garbageRows > 0
-        ? buildGarbageRows(cfg.garbageRows)
+        ? buildGarbageRows(cfg.garbageRows, theme.garbage)
         : Array.from({ length: ROWS }, () => new Array(COLS).fill(null));
       bag = [];
       nextType = drawBag();
@@ -334,10 +346,10 @@ function createTetrisLevel(api) {
     },
 
     draw(ctx) {
-      ctx.fillStyle = '#0a0a14';
+      ctx.fillStyle = theme.bg;
       ctx.fillRect(0, 0, W, H);
 
-      ctx.fillStyle = '#12121e';
+      ctx.fillStyle = theme.board;
       ctx.fillRect(BOARD_X, BOARD_Y, COLS * CELL, ROWS * CELL);
       for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
@@ -347,7 +359,7 @@ function createTetrisLevel(api) {
           }
         }
       }
-      ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+      ctx.strokeStyle = theme.grid;
       for (let c = 0; c <= COLS; c++) {
         ctx.beginPath(); ctx.moveTo(BOARD_X + c * CELL, BOARD_Y); ctx.lineTo(BOARD_X + c * CELL, BOARD_Y + ROWS * CELL); ctx.stroke();
       }

@@ -26,6 +26,18 @@ function createBugBlitzLevel(api) {
   const HEAD_COLOR = '#ffd24f';
   const BODY_COLORS = ['#6bff6b', '#3fd15a'];
 
+  // Cheap per-stage backdrop shift (sky/soil gradient only — sprites stay put) so
+  // the garden reads as a different place each stage, the same trick racing.js
+  // uses for its day/dusk/night backdrops.
+  const FIELD_THEMES = [
+    ['#173a1a', '#0a2410'], // stage 1: lush garden
+    ['#3a2f14', '#1c1508'], // stage 2: dry autumn field
+    ['#1a1030', '#08051c'], // stage 3+: toxic hive at night
+  ];
+  function fieldTheme(stage) {
+    return FIELD_THEMES[Math.min(FIELD_THEMES.length, Math.max(1, Math.floor(stage))) - 1];
+  }
+
   let player, bullets, mushrooms, chains, prevKeys;
   let shotCooldown, destroyedTotal, waveCount, particles, popups, hitFlash;
 
@@ -106,7 +118,11 @@ function createBugBlitzLevel(api) {
   }
 
   function difficultyFactor() {
-    return 1 + (destroyedTotal / TARGET_DESTROYED) * 0.9 + waveCount * 0.12;
+    // waveCount is capped here because TARGET_DESTROYED (and therefore the number
+    // of waves needed to reach it) grows without bound in endless mode — without
+    // this cap the step speed keeps compounding forever even after baseStep itself
+    // has hit its floor, eventually reaching near-instant stepping by stage ~15-20.
+    return 1 + (destroyedTotal / TARGET_DESTROYED) * 0.9 + Math.min(waveCount, 5) * 0.12;
   }
 
   function stepChain(chain) {
@@ -281,7 +297,8 @@ function createBugBlitzLevel(api) {
     },
 
     draw(ctx) {
-      FX.gradientRect(ctx, 0, 0, W, H, '#173a1a', '#0a2410');
+      const theme = fieldTheme(currentStage);
+      FX.gradientRect(ctx, 0, 0, W, H, theme[0], theme[1]);
 
       // faint soil rows for texture
       ctx.strokeStyle = 'rgba(0,0,0,0.15)';

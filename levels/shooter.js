@@ -12,10 +12,19 @@ function createShooterLevel(api) {
   // with a faster descent and more frequent UFOs; stage 3 bigger/faster still,
   // plus an extra row and tougher (2-hit) bunkers. Stage 4+ ("endless mode")
   // scales stage 3's setup smoothly with `stage`, capped so it stays winnable.
+  // Each stage also tints the background nebula a different hue (cheap, just
+  // gradient stops) so a new stage reads as "a new sector" the way racing.js
+  // shifts day->dusk->night; endless mode keeps stage 3's tint.
   const STAGE_CONFIGS = {
-    1: { rows: 4, cols: 8, stepInterval: 0.5, dropDy: 14, ufoMin: 6, ufoMax: 11, fireRateMult: 1, bunkerHp: 1 },
-    2: { rows: 5, cols: 9, stepInterval: 0.42, dropDy: 16, ufoMin: 4, ufoMax: 8, fireRateMult: 1.3, bunkerHp: 1 },
-    3: { rows: 6, cols: 10, stepInterval: 0.34, dropDy: 18, ufoMin: 3, ufoMax: 6, fireRateMult: 1.6, bunkerHp: 2 },
+    1: { rows: 4, cols: 8, stepInterval: 0.5, dropDy: 14, ufoMin: 6, ufoMax: 11, fireRateMult: 1, bunkerHp: 1, theme: 'void' },
+    2: { rows: 5, cols: 9, stepInterval: 0.42, dropDy: 16, ufoMin: 4, ufoMax: 8, fireRateMult: 1.3, bunkerHp: 1, theme: 'crimson' },
+    3: { rows: 6, cols: 10, stepInterval: 0.34, dropDy: 18, ufoMin: 3, ufoMax: 6, fireRateMult: 1.6, bunkerHp: 2, theme: 'venom' },
+  };
+
+  const NEBULA_THEMES = {
+    void: ['#0a0a1e', '#120a1c', '#05060a'],
+    crimson: ['#1e0a12', '#220a1e', '#06050a'],
+    venom: ['#07160f', '#0a1e2a', '#05080a'],
   };
 
   function getStageConfig(stage) {
@@ -32,6 +41,7 @@ function createShooterLevel(api) {
       ufoMax: Math.max(2.5, s3.ufoMax / scale),
       fireRateMult: s3.fireRateMult * scale,
       bunkerHp: s3.bunkerHp,
+      theme: s3.theme,
     };
   }
 
@@ -83,10 +93,11 @@ function createShooterLevel(api) {
   function drawStarfield(ctx) {
     const t = Date.now() / 1000;
     // faint nebula wash behind the stars
+    const palette = NEBULA_THEMES[cfg.theme] || NEBULA_THEMES.void;
     const neb = ctx.createLinearGradient(0, 0, 0, H);
-    neb.addColorStop(0, '#0a0a1e');
-    neb.addColorStop(0.5, '#120a1c');
-    neb.addColorStop(1, '#05060a');
+    neb.addColorStop(0, palette[0]);
+    neb.addColorStop(0.5, palette[1]);
+    neb.addColorStop(1, palette[2]);
     ctx.fillStyle = neb;
     ctx.fillRect(0, 0, W, H);
     stars.forEach((s) => {
@@ -250,7 +261,14 @@ function createShooterLevel(api) {
         }
       } else {
         ufo.x += ufo.dir * 90 * dt;
-        if (ufo.x < -60 || ufo.x > W + 60) ufo = null;
+        if (ufo.x < -60 || ufo.x > W + 60) {
+          // Missed it: re-arm the normal min/max wait. Without this, ufoTimer
+          // (last set to a <=0 trigger value) stays <=0 forever, so the very
+          // next frame's `if (!ufo)` check spawns another UFO immediately —
+          // one dodge of a UFO would otherwise chain into a nonstop stream.
+          ufo = null;
+          ufoTimer = cfg.ufoMin + Math.random() * (cfg.ufoMax - cfg.ufoMin);
+        }
       }
 
       if (ufo) {

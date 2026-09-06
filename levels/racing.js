@@ -36,7 +36,10 @@ function createRacingLevel(api) {
       spawnMax: s3.spawnMax / scale,
       spawnMin: Math.max(0.15, s3.spawnMin / scale),
       spawnDistDivisor: s3.spawnDistDivisor,
-      distanceTarget: s3.distanceTarget + (s - 3) * 250,
+      // Same per-stage growth rate as before (250 per +0.12 of scale), but tied
+      // to `scale`'s own cap so run length levels off together with speed and
+      // spawn rate instead of growing forever while difficulty plateaus.
+      distanceTarget: s3.distanceTarget + (scale - 1) * (250 / 0.12),
       reachMultiplier: Math.max(0.85, s3.reachMultiplier - (s - 3) * 0.02),
       theme: s3.theme,
     };
