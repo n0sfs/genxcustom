@@ -115,6 +115,7 @@ function createFowlPlayLevel(api) {
   let zeroHitStreak, phase, wonCalled;
   let dogTimer, dogState, dogDucksHeld, dogTextSpawned, dogPerfect;
   let reticle, prevSpace;
+  let prevMouseX, prevMouseY;
   let flashTimer, flashColor;
   let clouds, reeds;
   let elapsedT = 0;
@@ -267,6 +268,8 @@ function createFowlPlayLevel(api) {
       visuals = THEME_VISUALS[cfg.theme] || THEME_VISUALS.dawn;
       reticle = { x: W / 2, y: H * 0.55 };
       prevSpace = false;
+      prevMouseX = api.mouseX;
+      prevMouseY = api.mouseY;
       flashTimer = 0;
       flashColor = '#ff2a2a';
       elapsedT = 0;
@@ -294,6 +297,17 @@ function createFowlPlayLevel(api) {
       if (mvx !== 0 && mvy !== 0) { mvx *= 0.7071; mvy *= 0.7071; }
       reticle.x = clamp(reticle.x + mvx * RETICLE_SPEED * dt, 8, W - 8);
       reticle.y = clamp(reticle.y + mvy * RETICLE_SPEED * dt, 8, H - 8);
+
+      // mouse aiming: a light gun should follow the cursor directly, no easing.
+      // If the mouse moved this frame, it wins and snaps the reticle straight to it;
+      // otherwise the d-pad above keeps driving (works naturally for keyboard/touch).
+      const mx = api.mouseX, my = api.mouseY;
+      if (typeof mx === 'number' && typeof my === 'number' && (mx !== prevMouseX || my !== prevMouseY)) {
+        reticle.x = clamp(mx, 8, W - 8);
+        reticle.y = clamp(my, 8, H - 8);
+      }
+      prevMouseX = mx;
+      prevMouseY = my;
 
       const spaceDown = isDown('Space');
       const freshFire = spaceDown && !prevSpace;

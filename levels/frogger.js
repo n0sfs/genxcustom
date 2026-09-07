@@ -369,7 +369,7 @@ function createFroggerLevel(api) {
   }
 
   let TIME_LIMIT = 25;
-  let frog, prevKeys, hopTimer, roads, rivers, goalsFilled, bestRow, timeLeft, fly, flyTimer, flyLife, waterTime, speedMul, nearMissTimer, hasHazardLane, theme, themeName;
+  let frog, prevKeys, prevMouseDown, hopTimer, roads, rivers, goalsFilled, bestRow, timeLeft, fly, flyTimer, flyLife, waterTime, speedMul, nearMissTimer, hasHazardLane, theme, themeName;
 
   // Hop squash/stretch animation state (visual only — logical frog.x/y already
   // update instantly on hop for collision purposes; this just interpolates how
@@ -618,6 +618,61 @@ function createFroggerLevel(api) {
     ctx.restore();
   }
 
+  // Attempt a single hop in the given grid direction (dcol/drow each one of
+  // -1/0/1, cardinal only). This is the one true "try to hop" path — both the
+  // keyboard/touch d-pad input and the click-to-hop mouse input funnel
+  // through it so every hop, however triggered, gets identical collision,
+  // goal-pad-blocking, scoring and fly-pickup handling.
+  function attemptHop(dcol, drow) {
+    const newCol = Math.max(0, Math.min(COLS - 1, frog.col + dcol));
+    const newRow = Math.max(GOAL_ROW, Math.min(START_ROW, frog.row + drow));
+    // Hopping onto an already-filled goal pad used to be an instant death,
+    // which felt cheap after a long, careful crossing. Just bounce back instead;
+    // only landing between pads (the water gap) still kills you.
+    let blockedByFilledPad = false;
+    if (newRow === GOAL_ROW) {
+      const targetCenterX = newCol * CELL + CELL / 2;
+      const slotIdx = GOAL_COLS.findIndex((gc) => Math.abs(targetCenterX - (gc * CELL + CELL / 2)) < CELL * 0.4);
+      if (slotIdx !== -1 && goalsFilled[slotIdx]) blockedByFilledPad = true;
+    }
+    if (blockedByFilledPad) {
+      hopTimer = HOP_COOLDOWN;
+      sfx('bounce');
+    } else {
+      const oldX = frog.x, oldY = frog.y;
+      frog.col = newCol;
+      frog.row = newRow;
+      frog.x = frog.col * CELL + FROG_OFF;
+      frog.y = frog.row * CELL + FROG_OFF;
+      hopTimer = HOP_COOLDOWN;
+      hopAnim = { fromX: oldX, fromY: oldY, toX: frog.x, toY: frog.y, t: 0, dur: HOP_COOLDOWN };
+      sfx('hop');
+      // small hop-dust puff at the launch spot, every successful hop
+      particles.burst(oldX + frog.w / 2, oldY + frog.h - 2, 6, {
+        colors: ['#d8c89a', '#b8a878', '#8a7a54'],
+        speedMin: 15, speedMax: 50, lifeMin: 0.18, lifeMax: 0.32,
+        sizeMin: 1.5, sizeMax: 3, gravity: 60,
+      });
+      if (frog.row < bestRow) {
+        bestRow = frog.row;
+        addScore(2);
+        floatTexts.spawn(frog.x + frog.w / 2, frog.y, '+2', '#bfffbf', { life: 0.5, vy: -30, size: 10 });
+      }
+      if (fly && fly.col === frog.col && fly.row === frog.row) {
+        fly = null;
+        flyTimer = 5 + Math.random() * 5;
+        addScore(15);
+        sfx('pickup');
+        particles.burst(frog.x + frog.w / 2, frog.y + frog.h / 2, 10, {
+          colors: ['#fff2a8', '#ffd85c', '#ffffff'],
+          speedMin: 40, speedMax: 110, lifeMin: 0.25, lifeMax: 0.45,
+          sizeMin: 1.5, sizeMax: 3.5,
+        });
+        floatTexts.spawn(frog.x + frog.w / 2, frog.y - 6, '+15', '#ffe38a', { life: 0.7, vy: -36, size: 12 });
+      }
+    }
+  }
+
   function drawCar(ctx, c, dir, glow) {
     if (glow) {
       const gx = dir >= 0 ? c.x + c.w - 1 : c.x + 1;
@@ -684,6 +739,7 @@ function createFroggerLevel(api) {
 
       frog = { col: START_COL, row: START_ROW, x: START_COL * CELL + FROG_OFF, y: START_ROW * CELL + FROG_OFF, w: FROG_SIZE, h: FROG_SIZE };
       prevKeys = {};
+      prevMouseDown = false;
       hopTimer = 0;
       hopAnim = null;
       roads = makeLaneEntities(cfg.hazard ? [...cfg.road, cfg.hazard] : cfg.road);
@@ -738,61 +794,33 @@ function createFroggerLevel(api) {
         prevKeys[k] = down;
       });
 
+      // Click-to-hop: debounce mouseDown into a single fresh-click edge the
+      // same way keyboard presses are debounced above, so a held-down mouse
+      // button doesn't spam hops every frame.
+      const mouseIsDown = !!api.mouseDown;
+      const mouseJustClicked = mouseIsDown && !prevMouseDown;
+      prevMouseDown = mouseIsDown;
+
       if (hopTimer <= 0) {
         let dcol = 0, drow = 0;
         if (justPressed.up) drow = -1;
         else if (justPressed.down) drow = 1;
         else if (justPressed.left) dcol = -1;
         else if (justPressed.right) dcol = 1;
-        if (dcol || drow) {
-          const newCol = Math.max(0, Math.min(COLS - 1, frog.col + dcol));
-          const newRow = Math.max(GOAL_ROW, Math.min(START_ROW, frog.row + drow));
-          // Hopping onto an already-filled goal pad used to be an instant death,
-          // which felt cheap after a long, careful crossing. Just bounce back instead;
-          // only landing between pads (the water gap) still kills you.
-          let blockedByFilledPad = false;
-          if (newRow === GOAL_ROW) {
-            const targetCenterX = newCol * CELL + CELL / 2;
-            const slotIdx = GOAL_COLS.findIndex((gc) => Math.abs(targetCenterX - (gc * CELL + CELL / 2)) < CELL * 0.4);
-            if (slotIdx !== -1 && goalsFilled[slotIdx]) blockedByFilledPad = true;
-          }
-          if (blockedByFilledPad) {
-            hopTimer = HOP_COOLDOWN;
-            sfx('bounce');
+        else if (mouseJustClicked) {
+          // Pick whichever cardinal direction (up/down/left/right) has the
+          // larger component from the frog toward the click point, then feed
+          // it through the exact same attemptHop() every keyboard/touch hop
+          // uses, so collision/lane/goal-pad logic is reused unchanged.
+          const frogCx = frog.x + frog.w / 2, frogCy = frog.y + frog.h / 2;
+          const ddx = api.mouseX - frogCx, ddy = api.mouseY - frogCy;
+          if (Math.abs(ddx) >= Math.abs(ddy)) {
+            if (ddx !== 0) dcol = ddx > 0 ? 1 : -1;
           } else {
-            const oldX = frog.x, oldY = frog.y;
-            frog.col = newCol;
-            frog.row = newRow;
-            frog.x = frog.col * CELL + FROG_OFF;
-            frog.y = frog.row * CELL + FROG_OFF;
-            hopTimer = HOP_COOLDOWN;
-            hopAnim = { fromX: oldX, fromY: oldY, toX: frog.x, toY: frog.y, t: 0, dur: HOP_COOLDOWN };
-            sfx('hop');
-            // small hop-dust puff at the launch spot, every successful hop
-            particles.burst(oldX + frog.w / 2, oldY + frog.h - 2, 6, {
-              colors: ['#d8c89a', '#b8a878', '#8a7a54'],
-              speedMin: 15, speedMax: 50, lifeMin: 0.18, lifeMax: 0.32,
-              sizeMin: 1.5, sizeMax: 3, gravity: 60,
-            });
-            if (frog.row < bestRow) {
-              bestRow = frog.row;
-              addScore(2);
-              floatTexts.spawn(frog.x + frog.w / 2, frog.y, '+2', '#bfffbf', { life: 0.5, vy: -30, size: 10 });
-            }
-            if (fly && fly.col === frog.col && fly.row === frog.row) {
-              fly = null;
-              flyTimer = 5 + Math.random() * 5;
-              addScore(15);
-              sfx('pickup');
-              particles.burst(frog.x + frog.w / 2, frog.y + frog.h / 2, 10, {
-                colors: ['#fff2a8', '#ffd85c', '#ffffff'],
-                speedMin: 40, speedMax: 110, lifeMin: 0.25, lifeMax: 0.45,
-                sizeMin: 1.5, sizeMax: 3.5,
-              });
-              floatTexts.spawn(frog.x + frog.w / 2, frog.y - 6, '+15', '#ffe38a', { life: 0.7, vy: -36, size: 12 });
-            }
+            drow = ddy > 0 ? 1 : -1;
           }
         }
+        if (dcol || drow) attemptHop(dcol, drow);
       }
 
       nearMissTimer = Math.max(0, nearMissTimer - dt);

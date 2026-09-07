@@ -259,6 +259,18 @@ function createSkyDefenseLevel(api) {
       crosshair.x = Math.max(6, Math.min(W - 6, crosshair.x));
       crosshair.y = Math.max(6, Math.min(H - 6, crosshair.y));
 
+      // Mouse aim: directly overwrite the aim target with the live cursor
+      // position whenever it's over the canvas. The d-pad nudges crosshair
+      // incrementally each frame it's held, so the two inputs naturally
+      // coexist without a fight — whichever was used most recently wins,
+      // since a d-pad press on the very next frame will immediately move
+      // the crosshair away from wherever the mouse last placed it.
+      if (typeof api.mouseX === 'number' && typeof api.mouseY === 'number' &&
+          api.mouseX >= 0 && api.mouseX <= W && api.mouseY >= 0 && api.mouseY <= H) {
+        crosshair.x = Math.max(6, Math.min(W - 6, api.mouseX));
+        crosshair.y = Math.max(6, Math.min(H - 6, api.mouseY));
+      }
+
       if (isDown('Space') && fireCooldown <= 0) {
         fireCooldown = FIRE_COOLDOWN;
         const sx = W / 2, sy = GROUND_Y - 18;

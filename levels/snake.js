@@ -493,10 +493,38 @@ function createSnakeLevel(api) {
 
       if (!alive) return;
 
-      if (isDown('ArrowRight', 'd') && dir.x !== -1) nextDir = { x: 1, y: 0 };
-      else if (isDown('ArrowLeft', 'a') && dir.x !== 1) nextDir = { x: -1, y: 0 };
-      else if (isDown('ArrowDown', 's') && dir.y !== -1) nextDir = { x: 0, y: 1 };
-      else if (isDown('ArrowUp', 'w') && dir.y !== 1) nextDir = { x: 0, y: -1 };
+      const keyRight = isDown('ArrowRight', 'd');
+      const keyLeft = isDown('ArrowLeft', 'a');
+      const keyDown = isDown('ArrowDown', 's');
+      const keyUp = isDown('ArrowUp', 'w');
+      if (keyRight && dir.x !== -1) nextDir = { x: 1, y: 0 };
+      else if (keyLeft && dir.x !== 1) nextDir = { x: -1, y: 0 };
+      else if (keyDown && dir.y !== -1) nextDir = { x: 0, y: 1 };
+      else if (keyUp && dir.y !== 1) nextDir = { x: 0, y: -1 };
+      else if (!keyRight && !keyLeft && !keyDown && !keyUp) {
+        // Mouse-follow steering (classic mobile snake): with no keyboard/
+        // touch d-pad direction held this frame, derive a turn candidate
+        // from the vector between the snake head and the live cursor
+        // position (api.mouseX/mouseY are always current — updated every
+        // frame regardless of button state) and run it through the exact
+        // same anti-180 reversal guard the keyboard branches use above, so
+        // this never changes that safety rule, only where a candidate
+        // direction comes from. A small dead zone keeps the cursor sitting
+        // near the head from generating noisy direction flips.
+        const headCx = snake[0].x * CELL + CELL / 2;
+        const headCy = snake[0].y * CELL + CELL / 2;
+        const mdx = api.mouseX - headCx;
+        const mdy = api.mouseY - headCy;
+        if (Math.abs(mdx) >= CELL / 2 || Math.abs(mdy) >= CELL / 2) {
+          if (Math.abs(mdx) >= Math.abs(mdy)) {
+            if (mdx > 0 && dir.x !== -1) nextDir = { x: 1, y: 0 };
+            else if (mdx < 0 && dir.x !== 1) nextDir = { x: -1, y: 0 };
+          } else {
+            if (mdy > 0 && dir.y !== -1) nextDir = { x: 0, y: 1 };
+            else if (mdy < 0 && dir.y !== 1) nextDir = { x: 0, y: -1 };
+          }
+        }
+      }
 
       if (golden) {
         goldenTimer -= dt;

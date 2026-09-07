@@ -520,8 +520,8 @@ function createPinballLevel(api) {
     });
   }
 
-  function flipperState(flip, key, dt) {
-    const target = isDown(key) ? 1 : 0;
+  function flipperState(flip, key, mouseHeld, dt) {
+    const target = (isDown(key) || mouseHeld) ? 1 : 0;
     const rate = 11;
     const delta = clamp(target - flip.raise, -rate * dt, rate * dt);
     flip.raise = clamp(flip.raise + delta, 0, 1);
@@ -785,8 +785,22 @@ function createPinballLevel(api) {
       const gravity = GRAVITY_BASE * physMult;
       const maxSpeed = MAX_SPEED_BASE * physMult;
 
-      flipperState(flippers.left, 'ArrowLeft', dt);
-      flipperState(flippers.right, 'ArrowRight', dt);
+      // zone-based mouse/touch flipper control, additive to the keyboard
+      // bindings above: read mouseX/mouseDown fresh every frame (they're
+      // live values on api, not a polling function like isDown) and drive
+      // the SAME flip.raise state the arrow keys drive, based on which
+      // half of the table the held mouse is currently over. Deliberately
+      // NOT routed through isDown/Space - that generic click-dispatches-
+      // Space wiring would fire both flippers together regardless of
+      // cursor position, which isn't the independent left/right control
+      // this table needs.
+      const mouseHeld = !!api.mouseDown;
+      const mouseX = api.mouseX;
+      const leftMouseHeld = mouseHeld && mouseX < W / 2;
+      const rightMouseHeld = mouseHeld && mouseX >= W / 2;
+
+      flipperState(flippers.left, 'ArrowLeft', leftMouseHeld, dt);
+      flipperState(flippers.right, 'ArrowRight', rightMouseHeld, dt);
       bumpers.forEach((bp) => {
         bp.flash = Math.max(0, (bp.flash || 0) - dt);
         bp.glow = Math.max(0, (bp.glow || 0) - dt / 0.5);
@@ -1008,7 +1022,7 @@ function createPinballLevel(api) {
       ctx.fillText(`SCORE ${score} / ${targetScore}`, 24, 24);
       ctx.fillStyle = '#7d86a3';
       ctx.font = '8px monospace';
-      ctx.fillText('ARROWS = FLIPPERS', 24, 40);
+      ctx.fillText('ARROWS = FLIPPERS (OR CLICK LEFT/RIGHT HALF)', 24, 40);
       ctx.fillText(`TARGETS ${targets.filter((t) => t.alive).length}/${targets.length} FOR MULTIBALL`, 24, 452);
       if (comboTimer > 0 && comboCount > 1) {
         ctx.fillStyle = '#ff9a4f';

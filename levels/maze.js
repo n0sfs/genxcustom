@@ -572,6 +572,24 @@ function createMazeLevel(api) {
       else if (isDown('ArrowLeft', 'a')) player.nextDir = { dx: -1, dy: 0 };
       else if (isDown('ArrowDown', 's')) player.nextDir = { dx: 0, dy: 1 };
       else if (isDown('ArrowUp', 'w')) player.nextDir = { dx: 0, dy: -1 };
+      else if (api.mouseDown) {
+        // Mouse/touch-drag steering: while the button is held and no
+        // keyboard/d-pad key is currently down, translate the cursor's
+        // position relative to the player into a cardinal direction request
+        // (whichever axis has the larger offset wins), the same way classic
+        // mobile Pac-Man ports turn a held drag into a direction. This only
+        // ever populates player.nextDir — the actual turn/wall-collision
+        // logic below (tryTurn/isOpen) is untouched, so a mouse-requested
+        // turn into a wall is rejected exactly like a keyboard one.
+        const pp = pixelPos(player);
+        const dx = api.mouseX - pp.x;
+        const dy = api.mouseY - pp.y;
+        if (Math.abs(dx) > Math.abs(dy)) {
+          if (Math.abs(dx) > 1) player.nextDir = { dx: dx > 0 ? 1 : -1, dy: 0 };
+        } else if (Math.abs(dy) > 1) {
+          player.nextDir = { dx: 0, dy: dy > 0 ? 1 : -1 };
+        }
+      }
 
       stepMover(player, dt, (col, row, curDir) => {
         if (player.nextDir.dx !== 0 || player.nextDir.dy !== 0) {

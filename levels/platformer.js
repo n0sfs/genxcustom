@@ -689,8 +689,18 @@ function createPlatformerLevel(api) {
 
     update(dt) {
       player.vx = 0;
-      if (isDown('ArrowLeft', 'a')) player.vx = -MOVE_SPEED;
-      if (isDown('ArrowRight', 'd')) player.vx = MOVE_SPEED;
+      let moveLeft = isDown('ArrowLeft', 'a');
+      let moveRight = isDown('ArrowRight', 'd');
+      // Click-and-hold-to-move: while the mouse is held, steer toward the
+      // cursor's x position using the same movement code as the keyboard.
+      // A real keyboard direction key always takes priority for the frame.
+      if (!moveLeft && !moveRight && api.mouseDown) {
+        const cx = player.x + player.w / 2;
+        if (api.mouseX < cx - 4) moveLeft = true;
+        else if (api.mouseX > cx + 4) moveRight = true;
+      }
+      if (moveLeft) player.vx = -MOVE_SPEED;
+      if (moveRight) player.vx = MOVE_SPEED;
       if (player.vx > 0) player.facing = 1;
       else if (player.vx < 0) player.facing = -1;
       player.animT += dt * (player.vx !== 0 ? 10 : 3);

@@ -233,10 +233,24 @@ function createGridironLevel(api) {
       if (isDown('ArrowRight', 'd')) mvx += 1;
       if (isDown('ArrowUp', 'w')) mvy -= 1;
       if (isDown('ArrowDown', 's')) mvy += 1;
-      if (mvx || mvy) {
+      const keyboardActive = mvx !== 0 || mvy !== 0;
+      if (keyboardActive) {
         const n = normalize(mvx, mvy);
         player.facing = n;
         mvx = n.dx; mvy = n.dy;
+      } else if (api.mouseDown) {
+        // Click-and-hold: steer toward the cursor. Mouse coords are canvas-
+        // space (0-640 x 0-480); the world is only scrolled vertically
+        // (ctx.translate(0, -cameraY)), so undo that on y to get world-space,
+        // then feed the same normalize()/facing pipeline the keyboard uses.
+        const targetX = api.mouseX;
+        const targetY = api.mouseY + cameraY;
+        const toTarget = normalize(targetX - player.x, targetY - player.y);
+        const dist = Math.hypot(targetX - player.x, targetY - player.y);
+        if (dist > 2) {
+          player.facing = toTarget;
+          mvx = toTarget.dx; mvy = toTarget.dy;
+        }
       }
 
       const spacePressed = isDown('Space');

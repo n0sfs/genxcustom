@@ -776,6 +776,18 @@ function createZeldaLevel(api) {
         const spd = player.powerTimer > 0 ? PLAYER_SPEED * 1.35 : PLAYER_SPEED;
         moveAndCollide(player, (mvx / len) * spd, (mvy / len) * spd, dt);
         player.facing = { dx: mvx, dy: mvy };
+      } else if (api.mouseDown) {
+        // Click-and-hold-to-move: steer toward the cursor using the same
+        // normalize/apply-speed logic as keyboard movement above. Keyboard
+        // input (handled in the branch above) always takes priority.
+        const pcx = player.x + player.w / 2, pcy = player.y + player.h / 2;
+        const tdx = api.mouseX - pcx, tdy = api.mouseY - pcy;
+        const len = Math.hypot(tdx, tdy);
+        if (len > 4) {
+          const spd = player.powerTimer > 0 ? PLAYER_SPEED * 1.35 : PLAYER_SPEED;
+          moveAndCollide(player, (tdx / len) * spd, (tdy / len) * spd, dt);
+          player.facing = { dx: tdx / len, dy: tdy / len };
+        }
       }
 
       if (isDown('Space') && player.attackCooldown <= 0) {

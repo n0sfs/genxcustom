@@ -347,9 +347,30 @@ function createRacingLevel(api) {
 
       const moveSpeed = boosting ? 340 : MOVE_SPEED;
       player.vx = 0;
-      if (isDown('ArrowLeft', 'a')) player.vx = -moveSpeed;
-      if (isDown('ArrowRight', 'd')) player.vx = moveSpeed;
-      player.x += player.vx * dt;
+      const keyLeft = isDown('ArrowLeft', 'a');
+      const keyRight = isDown('ArrowRight', 'd');
+      if (keyLeft) player.vx = -moveSpeed;
+      if (keyRight) player.vx = moveSpeed;
+      if (keyLeft || keyRight) {
+        // Active keyboard/touch input always wins for this frame — nudge the
+        // player directly at the normal move speed, same as before.
+        player.x += player.vx * dt;
+      } else {
+        // No directional key/touch held: ease the car's center toward the
+        // mouse cursor's X, at the exact same speed/step keyboard uses, so
+        // mouse control can't out-turn the keyboard's normal turn rate.
+        const targetCenter = api.mouseX;
+        const dx = targetCenter - (player.x + player.w / 2);
+        const step = moveSpeed * dt;
+        if (Math.abs(dx) <= step) {
+          player.x += dx;
+          player.vx = dx / dt;
+        } else {
+          const dir = dx > 0 ? 1 : -1;
+          player.x += dir * step;
+          player.vx = dir * moveSpeed;
+        }
+      }
       player.x = Math.max(ROAD_X + 6, Math.min(ROAD_X + ROAD_W - player.w - 6, player.x));
 
       distance += speed * dt * 0.05;

@@ -573,6 +573,21 @@ function createCommandoLevel(api) {
       if (isDown('ArrowRight', 'd')) mvx = 1;
       if (isDown('ArrowUp', 'w')) mvy = -1;
       if (isDown('ArrowDown', 's')) mvy = 1;
+      // Click-and-hold-to-move: only kicks in when no keyboard/touch direction is
+      // already held this frame (keyboard/d-pad always takes priority), and only
+      // while the mouse button is actually down. Reuses the same normalize()
+      // helper and the same movement/speed code below as keyboard input.
+      if (!mvx && !mvy && api.mouseDown) {
+        const targetX = camX + api.mouseX;
+        const targetY = api.mouseY;
+        const toX = targetX - (player.x + player.w / 2);
+        const toY = targetY - (player.y + player.h / 2);
+        if (Math.hypot(toX, toY) > 4) {
+          const dir = normalize(toX, toY);
+          mvx = dir.dx;
+          mvy = dir.dy;
+        }
+      }
       if (mvx || mvy) player.facing = normalize(mvx, mvy);
       player.x += mvx * PLAYER_SPEED * dt;
       player.x = Math.max(0, Math.min(WORLD_W - player.w, player.x));

@@ -474,8 +474,14 @@ function createBreakoutLevel(api) {
       if (comboTimer <= 0) comboCount = 0;
       paddle.w = currentPaddleWidth();
 
-      if (isDown('ArrowLeft', 'a')) paddle.x -= paddle.speed * dt;
-      if (isDown('ArrowRight', 'd')) paddle.x += paddle.speed * dt;
+      // keyboard/touch d-pad take priority for any frame they're actively
+      // pressed; otherwise the paddle tracks the mouse cursor directly
+      // (classic Arkanoid-style control) regardless of button state
+      const keyLeft = isDown('ArrowLeft', 'a');
+      const keyRight = isDown('ArrowRight', 'd');
+      if (keyLeft) paddle.x -= paddle.speed * dt;
+      if (keyRight) paddle.x += paddle.speed * dt;
+      if (!keyLeft && !keyRight) paddle.x = api.mouseX - paddle.w / 2;
       paddle.x = Math.max(0, Math.min(W - paddle.w, paddle.x));
 
       // ball speed creeps up as the wall clears out, for an escalating arcade pace;

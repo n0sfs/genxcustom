@@ -9,6 +9,12 @@ function createTetrisLevel(api) {
   const BASE_FALL_INTERVAL = 0.8;
   const MIN_FALL_INTERVAL = 0.15;
   const ENDLESS_CAP = 2.6;
+  // Mouse-only controls (additive - see update() for the reasoning):
+  // MOUSE_MOVE_INTERVAL paces the cursor-follow drift at the same cadence
+  // as the keyboard's held-repeat move, MOUSE_CLICK_WINDOW is the longest
+  // press-to-release gap that still counts as a "quick click" rotate.
+  const MOUSE_MOVE_INTERVAL = 0.05;
+  const MOUSE_CLICK_WINDOW = 0.2;
 
   const SHAPES = {
     I: { color: '#4fe3d0', rot: [
@@ -58,6 +64,7 @@ function createTetrisLevel(api) {
 
   let board, piece, nextType, bag, fallTimer, fallInterval, linesCleared, combo;
   let leftPrev, rightPrev, leftHeld, rightHeld, leftRepeat, rightRepeat, rotPrev, dropPrev;
+  let mouseMoveTimer, mouseDownPrev, mouseHoldTimer;
   let baseFallInterval, targetLines, theme;
 
   // Instance-scoped juice systems - created once, updated/drawn every frame.
@@ -197,6 +204,15 @@ function createTetrisLevel(api) {
 
   function pieceCells(p) {
     return SHAPES[p.type].rot[p.r].map(([lx, ly]) => [p.x + lx, p.y + ly]);
+  }
+
+  // Center column (in board space, possibly fractional) of the piece's
+  // occupied cells - used to compare against the mouse's board column for
+  // the cursor-follow drift, since comparing raw piece.x would be biased
+  // toward whichever local origin each shape happens to use.
+  function pieceCenterCol(p) {
+    const xs = pieceCells(p).map(([gx]) => gx);
+    return (Math.min(...xs) + Math.max(...xs)) / 2;
   }
 
   function canPlace(p) {
@@ -441,6 +457,9 @@ function createTetrisLevel(api) {
       flashAlpha = 0;
       leftPrev = rightPrev = rotPrev = dropPrev = false;
       leftHeld = rightHeld = leftRepeat = rightRepeat = 0;
+      mouseMoveTimer = 0;
+      mouseDownPrev = false;
+      mouseHoldTimer = 0;
     },
 
     update(dt) {
@@ -482,9 +501,49 @@ function createTetrisLevel(api) {
       } else { rightHeld = 0; rightRepeat = 0; }
       rightPrev = rightDown;
 
+      // Mouse horizontal follow: nudge the piece one column at a time
+      // toward wherever the cursor currently is, at the same cadence as
+      // the keyboard's held-repeat move above (MOUSE_MOVE_INTERVAL matches
+      // the 0.05s repeat step) so a mouse move can't warp the piece across
+      // the board instantly - it drifts at the same max speed a held arrow
+      // key would produce, it just doesn't need the key held.
+      const mouseTargetCol = Math.max(0, Math.min(COLS - 1, Math.floor((api.mouseX - BOARD_X) / CELL)));
+      const pieceCol = Math.round(pieceCenterCol(piece));
+      if (mouseTargetCol !== pieceCol) {
+        mouseMoveTimer += dt;
+        if (mouseMoveTimer > MOUSE_MOVE_INTERVAL) {
+          mouseMoveTimer = 0;
+          tryMove(mouseTargetCol > pieceCol ? 1 : -1, 0);
+        }
+      } else {
+        mouseMoveTimer = 0;
+      }
+
       const rotatePressed = rotateDown && !rotPrev;
       rotPrev = rotateDown;
       if (rotatePressed && tryRotate()) refreshLockDelay();
+
+      // Mouse-only rotate: a press already pulses a Space keydown for its
+      // whole duration (game.js's click->action bridge), which this file's
+      // dropDown/dropPressed below reads as an instant hard drop on the
+      // press edge - so reusing that same press edge for rotate would fire
+      // hard-drop and rotate together on every single click, which isn't a
+      // distinct action and fights the existing Space binding. Instead,
+      // treat a *quick* click (press then release inside MOUSE_CLICK_WINDOW)
+      // as the rotate request, fired on release, calling the exact same
+      // tryRotate() the keyboard rotate key uses. A longer press/hold - e.g.
+      // held while dragging the piece across with the follow logic above -
+      // does not rotate on release, so a deliberate drag never surprises
+      // the player with an unwanted spin.
+      const mouseIsDown = api.mouseDown;
+      if (mouseIsDown && !mouseDownPrev) {
+        mouseHoldTimer = 0;
+      } else if (mouseIsDown) {
+        mouseHoldTimer += dt;
+      } else if (mouseDownPrev) {
+        if (mouseHoldTimer <= MOUSE_CLICK_WINDOW && tryRotate()) refreshLockDelay();
+      }
+      mouseDownPrev = mouseIsDown;
 
       const dropPressed = dropDown && !dropPrev;
       dropPrev = dropDown;

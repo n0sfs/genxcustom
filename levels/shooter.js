@@ -11,6 +11,7 @@ function createShooterLevel(api) {
   let player, bullets, enemyBullets, enemies, enemyDir, enemyStepTimer;
   let shotCooldown, hitFlash, screenFlash, invuln, ufo, ufoTimer, ufoAlert, bunkers, stars, starsFar, combo, comboTimer;
   let muzzleFlash, engineTrailTimer;
+  let lastMouseX;
   let cfg, rows, cols, gridW, startX, totalEnemies;
   const UFO_SCORES = [50, 50, 100, 100, 150, 300];
 
@@ -256,6 +257,7 @@ function createShooterLevel(api) {
       screenFlash = 0;
       muzzleFlash = 0;
       engineTrailTimer = 0;
+      lastMouseX = api.mouseX;
       particles.clear();
       ufo = null;
       ufoTimer = cfg.ufoMin + Math.random() * (cfg.ufoMax - cfg.ufoMin);
@@ -276,8 +278,27 @@ function createShooterLevel(api) {
       ufoAlert = Math.max(0, ufoAlert - dt);
       shotCooldown = Math.max(0, shotCooldown - dt);
 
-      if (isDown('ArrowLeft', 'a')) player.x -= player.speed * dt;
-      if (isDown('ArrowRight', 'd')) player.x += player.speed * dt;
+      const keyLeft = isDown('ArrowLeft', 'a');
+      const keyRight = isDown('ArrowRight', 'd');
+      if (keyLeft) player.x -= player.speed * dt;
+      if (keyRight) player.x += player.speed * dt;
+
+      // Mouse control: only kicks in on frames where the mouse actually
+      // moved (so a stationary cursor never fights keyboard/touch input),
+      // and keyboard/touch always wins outright on any frame they're held —
+      // this lets the player swap control schemes instantly in either
+      // direction. Moves the ship toward the cursor using the same max
+      // speed as keyboard movement, so it eases rather than teleports.
+      const mouseMoved = typeof api.mouseX === 'number' && api.mouseX !== lastMouseX;
+      if (typeof api.mouseX === 'number') lastMouseX = api.mouseX;
+      if (!keyLeft && !keyRight && mouseMoved) {
+        const targetX = api.mouseX - player.w / 2;
+        const dx = targetX - player.x;
+        const maxStep = player.speed * dt;
+        if (Math.abs(dx) <= maxStep) player.x = targetX;
+        else player.x += Math.sign(dx) * maxStep;
+      }
+
       player.x = Math.max(0, Math.min(W - player.w, player.x));
 
       // Continuous engine exhaust trail behind both nacelles, even when idle,

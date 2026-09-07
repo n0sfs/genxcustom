@@ -299,8 +299,18 @@ function createBugBlitzLevel(api) {
       hitFlash = Math.max(0, hitFlash - dt);
       levelTime += dt;
 
+      const keyboardActive = isDown('ArrowLeft', 'a') || isDown('ArrowRight', 'd');
       if (isDown('ArrowLeft', 'a')) player.x -= PLAYER_SPEED * dt;
       if (isDown('ArrowRight', 'd')) player.x += PLAYER_SPEED * dt;
+      if (!keyboardActive && typeof api.mouseX === 'number') {
+        // Follow the mouse cursor at the same max speed the keyboard uses,
+        // easing toward it rather than teleporting instantly.
+        const targetX = api.mouseX - player.w / 2;
+        const dx = targetX - player.x;
+        const maxStep = PLAYER_SPEED * dt;
+        if (Math.abs(dx) <= maxStep) player.x = targetX;
+        else player.x += Math.sign(dx) * maxStep;
+      }
       player.x = Math.max(0, Math.min(W - player.w, player.x));
 
       if (isDown('Space') && shotCooldown <= 0) {
