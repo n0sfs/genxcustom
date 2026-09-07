@@ -22,8 +22,6 @@ const Game = (() => {
   const letterSlots = document.querySelectorAll('#screen-initials .letter-slot');
   const marqueeTrack = document.getElementById('marquee-track');
   const levelListEl = document.getElementById('level-list');
-  const touchDpad = document.getElementById('touch-dpad');
-  const touchNumpad = document.getElementById('touch-numpad');
 
   const START_LIVES = 3;
   const LB_KEY = 'genxArcadeLeaderboard';
@@ -386,9 +384,6 @@ const Game = (() => {
     state.levelInstance = def.factory(api);
     state.levelInstance.init(state.stage);
     updateHud();
-    const usesNumpad = def.tag === 'reflex';
-    if (touchDpad) touchDpad.classList.toggle('hidden', usesNumpad);
-    if (touchNumpad) touchNumpad.classList.toggle('hidden', !usesNumpad);
     state.mode = 'playing';
     hideAllScreens();
     startMusic();

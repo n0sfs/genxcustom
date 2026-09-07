@@ -82,17 +82,6 @@
         <button class="touch-btn dpad-right" data-key="ArrowRight" aria-label="Right">&#9654;</button>
         <button class="touch-btn dpad-down" data-key="ArrowDown" aria-label="Down">&#9660;</button>
       </div>
-      <div id="touch-numpad" class="touch-group hidden">
-        <button class="touch-btn num-btn" data-key="1">1</button>
-        <button class="touch-btn num-btn" data-key="2">2</button>
-        <button class="touch-btn num-btn" data-key="3">3</button>
-        <button class="touch-btn num-btn" data-key="4">4</button>
-        <button class="touch-btn num-btn" data-key="5">5</button>
-        <button class="touch-btn num-btn" data-key="6">6</button>
-        <button class="touch-btn num-btn" data-key="7">7</button>
-        <button class="touch-btn num-btn" data-key="8">8</button>
-        <button class="touch-btn num-btn" data-key="9">9</button>
-      </div>
       <div id="touch-side" class="touch-group">
         <button class="touch-btn pause-btn" data-key="p" aria-label="Pause">II</button>
         <button class="touch-btn action-btn" data-key=" " aria-label="Action">&#9679;</button>
@@ -109,7 +98,7 @@
   <script src="levels/breakout.js"></script>
   <script src="levels/maze.js"></script>
   <script src="levels/snake.js"></script>
-  <script src="levels/whackamole.js"></script>
+  <script src="levels/fowlplay.js"></script>
   <script src="levels/racing.js"></script>
   <script src="levels/zelda.js"></script>
   <script src="levels/pinball.js"></script>
@@ -118,14 +107,14 @@
   <script src="levels/tetris.js"></script>
   <script src="levels/bugblitz.js"></script>
   <script src="levels/skydefense.js"></script>
-  <script src="levels/patternpulse.js"></script>
+  <script src="levels/gridiron.js"></script>
   <script>
     Game.registerLevel('STARBLASTER', createShooterLevel, 'shooter', 'Blast the alien invasion.');
     Game.registerLevel('CRATE RUNNER', createPlatformerLevel, 'platformer', 'Run, jump, stomp to the flag.');
     Game.registerLevel('WALL SMASH', createBreakoutLevel, 'breakout', 'Break every brick on the board.');
     Game.registerLevel('MAZE MUNCH', createMazeLevel, 'maze', 'Gobble dots, dodge ghosts.');
     Game.registerLevel('BYTE CHASER', createSnakeLevel, 'snake', "Grow long, don't bite yourself.");
-    Game.registerLevel('REFLEX RUSH', createWhackAMoleLevel, 'reflex', 'Whack moles, dodge bombs.');
+    Game.registerLevel('FOWL PLAY', createFowlPlayLevel, 'lightgun', 'Shoot the ducks before they fly off.');
     Game.registerLevel('TURBO DODGE', createRacingLevel, 'racing', 'Weave through oncoming traffic.');
     Game.registerLevel("HERO'S TRIAL", createZeldaLevel, 'dungeon', 'Clear the dungeon, beat the boss.');
     Game.registerLevel('SILVER TILT', createPinballLevel, 'pinball', 'Keep the ball in play.');
@@ -134,7 +123,7 @@
     Game.registerLevel('BLOCK CASCADE', createTetrisLevel, 'puzzle', 'Clear lines before they stack up.');
     Game.registerLevel('BUG BLITZ', createBugBlitzLevel, 'garden', 'Blast the centipede before it reaches you.');
     Game.registerLevel('SKY DEFENSE', createSkyDefenseLevel, 'defense', 'Aim and intercept before the cities fall.');
-    Game.registerLevel('PATTERN PULSE', createPatternPulseLevel, 'memory', 'Watch the pattern, then repeat it.');
+    Game.registerLevel('GRIDIRON DASH', createGridironLevel, 'football', 'Juke tacklers, sprint for the end zone.');
     Game.boot();
   </script>
 </body>
