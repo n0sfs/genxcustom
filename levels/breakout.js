@@ -39,11 +39,50 @@ function createBreakoutLevel(api) {
     return BG_THEMES[Math.min(Math.max(stageNum, 1), HAND_BUILT_STAGES)];
   }
 
-  let paddle, balls, bricks, particles, powerups, wideTimer, slowTimer;
-  let comboCount, comboTimer, popups;
+  let paddle, balls, bricks, powerups, wideTimer, slowTimer;
+  let comboCount, comboTimer, floatTexts;
   let curStage = 1;
   let totalBricks = 0;
+  let stars = [];
+  let elapsed = 0;
+  let flashTimer = 0, flashMax = 0, flashColor = '#fff', flashPeak = 0;
 
+  // shared juice systems (fx.js) - created once per level instance, ticked
+  // and drawn every frame; init() just clears them out on stage (re)start
+  const fxParticles = FX.makeParticles(160);
+  const floatText = FX.makeFloatText(28);
+
+  function triggerFlash(color, duration, peak) {
+    flashTimer = duration;
+    flashMax = duration;
+    flashColor = color;
+    flashPeak = peak;
+  }
+
+  function spark(x, y, angle) {
+    fxParticles.burst(x, y, 6, {
+      colors: ['#ffffff', '#bfe8ff'],
+      speedMin: 30, speedMax: 90,
+      lifeMin: 0.15, lifeMax: 0.3,
+      sizeMin: 1, sizeMax: 2.5,
+      angle, spread: Math.PI * 0.7,
+    });
+  }
+
+  function makeStars(n = 28) {
+    stars = [];
+    for (let i = 0; i < n; i++) {
+      stars.push({
+        x: Math.random() * W,
+        y: Math.random() * (H * 0.6),
+        r: 0.5 + Math.random() * 1.2,
+        phase: Math.random() * Math.PI * 2,
+        speed: 0.6 + Math.random() * 1.4,
+      });
+    }
+  }
+
+  // "ball speeds up as the wall clears" coefficient, hand-tuned per stage.
   // stage 11+ ("endless mode") scales continuously off of stage 10's numbers
   // instead of hand-tuning forever - capped so it never becomes unplayable
   function endlessScale(stageNum) {
@@ -259,17 +298,27 @@ function createBreakoutLevel(api) {
       w: BRICK_W, h: BRICK_H,
       alive: true,
       hp: hp + extraHp,
+      maxHp: hp + extraHp,
+      cracks: [],
       color,
     }));
     totalBricks = bricks.length;
   }
 
-  function burst(x, y, color) {
-    for (let i = 0; i < 8; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const spd = 50 + Math.random() * 120;
-      particles.push({ x, y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, life: 0.3, color });
-    }
+  // stores a stable jagged crack line on a damaged (but still standing)
+  // brick, so the damage reads as a growing fracture rather than a flicker
+  function addCrack(b) {
+    const edge = Math.floor(Math.random() * 4);
+    let sx, sy;
+    if (edge === 0) { sx = b.x + Math.random() * b.w; sy = b.y; }
+    else if (edge === 1) { sx = b.x + b.w; sy = b.y + Math.random() * b.h; }
+    else if (edge === 2) { sx = b.x + Math.random() * b.w; sy = b.y + b.h; }
+    else { sx = b.x; sy = b.y + Math.random() * b.h; }
+    const ex = b.x + b.w / 2 + (Math.random() - 0.5) * b.w * 0.4;
+    const ey = b.y + b.h / 2 + (Math.random() - 0.5) * b.h * 0.4;
+    const mx = (sx + ex) / 2 + (Math.random() - 0.5) * 6;
+    const my = (sy + ey) / 2 + (Math.random() - 0.5) * 6;
+    b.cracks.push({ sx, sy, mx, my, ex, ey });
   }
 
   function resetBalls() {
@@ -313,6 +362,19 @@ function createBreakoutLevel(api) {
     ctx.lineTo(b.x + b.w / 2, b.y + b.h - 3);
     ctx.stroke();
 
+    // damage cracks - grows as a multi-hit brick takes punishment
+    if (b.cracks && b.cracks.length) {
+      ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+      ctx.lineWidth = 1;
+      b.cracks.forEach((c) => {
+        ctx.beginPath();
+        ctx.moveTo(c.sx, c.sy);
+        ctx.lineTo(c.mx, c.my);
+        ctx.lineTo(c.ex, c.ey);
+        ctx.stroke();
+      });
+    }
+
     // dark silhouette outline
     ctx.strokeStyle = 'rgba(0,0,0,0.55)';
     ctx.lineWidth = 1.5;
@@ -321,22 +383,41 @@ function createBreakoutLevel(api) {
   }
 
   function drawPaddle(ctx) {
-    const baseColor = wideTimer > 0 ? '#8fffb0' : '#4fe3d0';
-    const light = FX.shade(baseColor, 50);
-    const dark = FX.shade(baseColor, -40);
+    const active = wideTimer > 0 || slowTimer > 0;
+    const baseColor = wideTimer > 0 ? '#8fffb0' : slowTimer > 0 ? '#bfe8ff' : '#4fe3d0';
     FX.shadow(ctx, paddle.x + paddle.w / 2, paddle.y + paddle.h + 4, paddle.w / 2, 3, 0.25);
 
-    const g = ctx.createLinearGradient(paddle.x, paddle.y, paddle.x, paddle.y + paddle.h);
-    g.addColorStop(0, light);
-    g.addColorStop(0.5, baseColor);
-    g.addColorStop(1, dark);
-    ctx.fillStyle = g;
-    FX.roundRectPath(ctx, paddle.x, paddle.y, paddle.w, paddle.h, 5);
-    ctx.fill();
+    // pulsing glow while a powerup timer is active
+    if (active) {
+      const pulse = 0.4 + 0.3 * Math.sin(elapsed * 7);
+      ctx.save();
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = baseColor;
+      FX.roundRectPath(ctx, paddle.x - 4, paddle.y - 4, paddle.w + 8, paddle.h + 8, 8);
+      ctx.fill();
+      ctx.restore();
+    }
 
-    // specular strip
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.fillRect(paddle.x + 4, paddle.y + 1.5, paddle.w - 8, 2);
+    // solid chrome/metal bar: brushed-steel base blended with a color tint
+    ctx.save();
+    FX.roundRectPath(ctx, paddle.x, paddle.y, paddle.w, paddle.h, 5);
+    ctx.clip();
+    FX.chrome(ctx, paddle.x, paddle.y, paddle.w, paddle.h);
+    const tint = ctx.createLinearGradient(paddle.x, paddle.y, paddle.x, paddle.y + paddle.h);
+    tint.addColorStop(0, FX.shade(baseColor, 45));
+    tint.addColorStop(0.5, baseColor);
+    tint.addColorStop(1, FX.shade(baseColor, -45));
+    ctx.globalAlpha = 0.6;
+    ctx.fillStyle = tint;
+    ctx.fillRect(paddle.x, paddle.y, paddle.w, paddle.h);
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    // chrome rim light along the top edge
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillRect(paddle.x + 4, paddle.y + 1, paddle.w - 8, 1.5);
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.fillRect(paddle.x + 4, paddle.y + 3, paddle.w - 8, 1);
 
     // chrome end caps (rivets)
     ctx.fillStyle = 'rgba(255,255,255,0.7)';
@@ -372,19 +453,24 @@ function createBreakoutLevel(api) {
       paddle = { x: W / 2 - PADDLE_W / 2, y: H - 30, w: PADDLE_W, h: PADDLE_H, speed: 320 };
       makeBricks(curStage);
       resetBalls();
-      particles = [];
       powerups = [];
-      popups = [];
       wideTimer = 0;
       slowTimer = 0;
       comboCount = 0;
       comboTimer = 0;
+      elapsed = 0;
+      flashTimer = 0;
+      fxParticles.clear();
+      floatText.clear();
+      makeStars();
     },
 
     update(dt) {
+      elapsed += dt;
       wideTimer = Math.max(0, wideTimer - dt);
       slowTimer = Math.max(0, slowTimer - dt);
       comboTimer = Math.max(0, comboTimer - dt);
+      flashTimer = Math.max(0, flashTimer - dt);
       if (comboTimer <= 0) comboCount = 0;
       paddle.w = currentPaddleWidth();
 
@@ -418,9 +504,21 @@ function createBreakoutLevel(api) {
         ball.x += ball.vx * dt * speedMult;
         ball.y += ball.vy * dt * speedMult;
 
-        if (ball.x - BALL_R < 0) { ball.x = BALL_R; ball.vx *= -1; sfx('bounce'); }
-        if (ball.x + BALL_R > W) { ball.x = W - BALL_R; ball.vx *= -1; sfx('bounce'); }
-        if (ball.y - BALL_R < 0) { ball.y = BALL_R; ball.vy *= -1; sfx('bounce'); }
+        // faint fading afterimage trail once the ball is moving fast -
+        // pure cosmetic motion cue, reuses the shared particle pool
+        const realSpeed = Math.hypot(ball.vx, ball.vy) * speedMult;
+        if (realSpeed > 340) {
+          fxParticles.spawn(ball.x, ball.y, {
+            vx: 0, vy: 0, life: 0.12,
+            size: BALL_R * 1.4,
+            color: slowTimer > 0 ? '#bfe8ff' : '#ffd24f',
+            fade: true, shrink: true,
+          });
+        }
+
+        if (ball.x - BALL_R < 0) { ball.x = BALL_R; ball.vx *= -1; sfx('bounce'); spark(ball.x, ball.y, Math.PI); }
+        if (ball.x + BALL_R > W) { ball.x = W - BALL_R; ball.vx *= -1; sfx('bounce'); spark(ball.x, ball.y, 0); }
+        if (ball.y - BALL_R < 0) { ball.y = BALL_R; ball.vy *= -1; sfx('bounce'); spark(ball.x, ball.y, Math.PI / 2); }
 
         if (circleRectOverlap(ball, BALL_R, paddle) && ball.vy > 0) {
           ball.y = paddle.y - BALL_R;
@@ -428,6 +526,7 @@ function createBreakoutLevel(api) {
           ball.vx = hitPos * 300;
           ball.vy = -Math.abs(ball.vy);
           sfx('bounce');
+          spark(ball.x, ball.y, -Math.PI / 2);
         }
 
         for (const b of bricks) {
@@ -439,19 +538,32 @@ function createBreakoutLevel(api) {
               b.alive = false;
             } else {
               // still standing (a tough multi-hit brick) - darken it a shade
-              // so the hit visibly registers before it finally breaks
+              // and etch a fresh crack so the hit visibly registers before
+              // it finally breaks
               b.color = FX.shade(b.color, -22);
+              addCrack(b);
             }
 
             comboCount = comboTimer > 0 ? comboCount + 1 : 1;
             comboTimer = COMBO_WINDOW;
             const bonus = 8 + Math.min(comboCount - 1, 8) * 3;
             addScore(bonus);
-            burst(b.x + b.w / 2, b.y + b.h / 2, b.color);
+
+            // debris burst tinted to the brick's own color, plus a floating
+            // score number for every hit; combo streaks get louder colors
+            const comboColor = comboCount > 8 ? '#ff6b6b' : comboCount > 5 ? '#ff9f4f' : comboCount > 2 ? '#ffd24f' : '#ffe28a';
+            fxParticles.burst(b.x + b.w / 2, b.y + b.h / 2, 9, {
+              colors: [b.color, FX.shade(b.color, 45), FX.shade(b.color, -30)],
+              speedMin: 50, speedMax: 170,
+              lifeMin: 0.25, lifeMax: 0.5,
+              sizeMin: 2, sizeMax: 4,
+              gravity: 260,
+            });
+            floatText.spawn(b.x + b.w / 2, b.y + b.h / 2, `+${bonus}`, comboColor, { life: 0.45, vy: -34, size: comboCount > 2 ? 10 : 8 });
             sfx('hit');
             shake(0.04, 1.3);
             if (comboCount > 2) {
-              popups.push({ x: b.x + b.w / 2, y: b.y, text: `x${comboCount} +${bonus}`, life: 0.5 });
+              floatText.spawn(b.x + b.w / 2, b.y - 6, `COMBO x${comboCount}`, comboColor, { life: 0.55, vy: -26, size: 9 });
             }
 
             if (destroyed) {
@@ -460,8 +572,14 @@ function createBreakoutLevel(api) {
                 addScore(25);
                 sfx('explosion');
                 shake(0.18, 5);
-                popups.push({ x: b.x + b.w / 2, y: b.y - 10, text: 'ROW CLEAR +25', life: 0.9 });
-                burst(b.x + b.w / 2, b.y + b.h / 2, b.color);
+                floatText.spawn(b.x + b.w / 2, b.y - 10, 'ROW CLEAR +25', '#8fffb0', { life: 0.9, vy: -22, size: 10 });
+                fxParticles.burst(b.x + b.w / 2, b.y + b.h / 2, 14, {
+                  colors: [b.color, '#ffffff'],
+                  speedMin: 60, speedMax: 200,
+                  lifeMin: 0.3, lifeMax: 0.6,
+                  sizeMin: 2, sizeMax: 5,
+                  gravity: 220,
+                });
               }
 
               if (Math.random() < POWERUP_CHANCE) {
@@ -486,6 +604,8 @@ function createBreakoutLevel(api) {
       if (balls.length === 0) {
         comboCount = 0;
         comboTimer = 0;
+        triggerFlash('#ff3b3b', 0.3, 0.4);
+        shake(0.15, 4);
         loseLife();
         return;
       }
@@ -502,6 +622,13 @@ function createBreakoutLevel(api) {
           sfx('pickup');
           shake(0.06, 2);
           addScore(5);
+          fxParticles.burst(p.x, p.y, 10, {
+            colors: [p.color, '#ffffff'],
+            speedMin: 60, speedMax: 160,
+            lifeMin: 0.25, lifeMax: 0.5,
+            sizeMin: 2, sizeMax: 4,
+          });
+          floatText.spawn(p.x, p.y - 4, p.label, p.color, { life: 0.5, vy: -30, size: 9 });
           if (p.key === 'W') wideTimer = 12;
           else if (p.key === 'S') slowTimer = 8;
           else if (p.key === 'M') {
@@ -523,14 +650,27 @@ function createBreakoutLevel(api) {
         return p.y < H + 20;
       });
 
-      particles.forEach((p) => { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; });
-      particles = particles.filter((p) => p.life > 0);
-
-      popups.forEach((p) => { p.y -= 22 * dt; p.life -= dt; });
-      popups = popups.filter((p) => p.life > 0);
+      fxParticles.update(dt);
+      floatText.update(dt);
 
       if (bricks.every((b) => !b.alive)) {
         const clearBonus = Math.round(40 + (curStage - 1) * 8);
+        // wall-clear celebration: a shower of debris across the cleared
+        // field plus a bright flash, right before handing off to winLevel
+        for (let i = 0; i < 8; i++) {
+          const rx = startX + Math.random() * gridW;
+          const ry = 30 + Math.random() * 200;
+          fxParticles.burst(rx, ry, 10, {
+            colors: colors.concat(TOUGH_COLOR),
+            speedMin: 60, speedMax: 220,
+            lifeMin: 0.4, lifeMax: 0.9,
+            sizeMin: 2, sizeMax: 5,
+            gravity: 140,
+          });
+        }
+        floatText.spawn(W / 2, H / 2 - 20, 'WALL CLEAR!', '#ffe28a', { life: 1.0, vy: -18, size: 16 });
+        triggerFlash('#ffffff', 0.35, 0.5);
+        shake(0.22, 5);
         winLevel(clearBonus);
       }
     },
@@ -538,6 +678,15 @@ function createBreakoutLevel(api) {
     draw(ctx) {
       const [bgTop, bgBottom] = bgTheme(curStage);
       FX.gradientRect(ctx, 0, 0, W, H, bgTop, bgBottom);
+
+      // faint twinkling starfield behind the brick field for cabinet-glow ambience
+      stars.forEach((s) => {
+        const tw = 0.12 + 0.15 * (0.5 + 0.5 * Math.sin(elapsed * s.speed + s.phase));
+        ctx.fillStyle = `rgba(255,255,255,${tw.toFixed(3)})`;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
 
       // steel cabinet rails along the play boundary
       FX.chrome(ctx, 0, 0, 6, H);
@@ -560,6 +709,16 @@ function createBreakoutLevel(api) {
       });
 
       powerups.forEach((p) => {
+        // pulsing glow halo so pickups read as "alive" while they fall
+        const pulse = 0.5 + 0.5 * Math.sin(elapsed * 6 + p.x * 0.05);
+        ctx.save();
+        ctx.globalAlpha = 0.3 + 0.25 * pulse;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 12 + pulse * 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
         FX.sphere(ctx, p.x, p.y, 9, p.color);
         ctx.strokeStyle = 'rgba(0,0,0,0.5)';
         ctx.lineWidth = 1.5;
@@ -579,22 +738,8 @@ function createBreakoutLevel(api) {
         drawBall(ctx, ball);
       });
 
-      particles.forEach((p) => {
-        ctx.fillStyle = p.color;
-        ctx.globalAlpha = Math.max(0, p.life / 0.3);
-        ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
-        ctx.globalAlpha = 1;
-      });
-
-      ctx.font = 'bold 9px monospace';
-      ctx.textAlign = 'center';
-      popups.forEach((p) => {
-        ctx.fillStyle = '#ffe28a';
-        ctx.globalAlpha = Math.max(0, p.life / 0.5);
-        ctx.fillText(p.text, p.x, p.y);
-        ctx.globalAlpha = 1;
-      });
-      ctx.textAlign = 'left';
+      fxParticles.draw(ctx);
+      floatText.draw(ctx);
 
       if (comboTimer > 0 && comboCount > 2) {
         ctx.fillStyle = '#ffd24f';
@@ -606,6 +751,10 @@ function createBreakoutLevel(api) {
         ctx.fillStyle = '#9aa3c0';
         ctx.font = '9px monospace';
         ctx.fillText('PRESS SPACE TO LAUNCH', W / 2 - 78, H / 2);
+      }
+
+      if (flashTimer > 0) {
+        FX.flash(ctx, W, H, flashColor, flashPeak * (flashTimer / flashMax));
       }
     },
   };

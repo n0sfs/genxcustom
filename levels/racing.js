@@ -8,6 +8,24 @@ function createRacingLevel(api) {
   const NEAR_MISS_GAP = 14;
   const CAR_COLORS = ['#ff4fa3', '#ffd24f', '#8f8fff', '#ff9a4f'];
 
+  // Per-theme traffic palettes so each leg of the trip has its own visual
+  // personality, not just a re-tinted sky. Falls back to CAR_COLORS.
+  const CAR_COLOR_THEMES = {
+    day: ['#ff4fa3', '#ffd24f', '#8f8fff', '#ff9a4f'],
+    dusk: ['#ff8fc6', '#ffd24f', '#c39bff', '#ff7a4f'],
+    night: ['#7fd7ff', '#c9c9ff', '#ff6b6b', '#8f8fff'],
+    storm: ['#7fd7ff', '#a0aab8', '#ff6b6b', '#c9c9ff'],
+    dawn: ['#ffb385', '#ffd8a8', '#ff8fa3', '#ffe27a'],
+    fog: ['#c9d2d6', '#a8b6ba', '#8f9a9d', '#d8dde0'],
+    neon: ['#00ffdc', '#ff3cdc', '#ffe600', '#7a4fff'],
+    desert: ['#ff9a4f', '#ffce6b', '#c96a3a', '#ffb385'],
+    blizzard: ['#8fd0ff', '#dbe8ff', '#a0b8cc', '#ffffff'],
+    overdrive: ['#ff2b2b', '#ff8a2b', '#ffe14f', '#ff5fa3'],
+  };
+
+  // Themes dark enough that headlight/taillight glow cones make sense.
+  const NIGHT_THEMES = new Set(['night', 'storm', 'fog', 'neon', 'blizzard', 'overdrive']);
+
   // Ten hand-built stages: each is a real jump in traffic density/speed, not a
   // tweak, and each leg of the road trip swaps the theme to sell "somewhere
   // new" (day -> dusk -> night -> storm -> dawn -> fog -> neon city -> desert
@@ -27,23 +45,23 @@ function createRacingLevel(api) {
   };
 
   const THEMES = {
-    day: { sky: ['#1e2a1e', '#141c14'], road: ['#3f3f4a', '#232328'], lane: 'rgba(255,255,255,0.5)', weather: null },
-    dusk: { sky: ['#3a2540', '#1a1020'], road: ['#4a3f4a', '#2a2028'], lane: 'rgba(255,220,160,0.55)', weather: null },
-    night: { sky: ['#0a0e1e', '#05060c'], road: ['#242a38', '#12151c'], lane: 'rgba(207,232,255,0.55)', weather: 'rain' },
+    day: { sky: ['#1e2a1e', '#141c14'], road: ['#3f3f4a', '#232328'], lane: 'rgba(255,255,255,0.5)', weather: null, foliage: '#1e4a24', building: '#2a2e2a' },
+    dusk: { sky: ['#3a2540', '#1a1020'], road: ['#4a3f4a', '#2a2028'], lane: 'rgba(255,220,160,0.55)', weather: null, foliage: '#3a2a4a', building: '#302838' },
+    night: { sky: ['#0a0e1e', '#05060c'], road: ['#242a38', '#12151c'], lane: 'rgba(207,232,255,0.55)', weather: 'rain', foliage: '#101a2a', building: '#1a2030' },
     // Heavier storm rain on a slick, near-black highway.
-    storm: { sky: ['#111a24', '#04070c'], road: ['#20262f', '#0e1116'], lane: 'rgba(160,200,255,0.5)', weather: 'rain', rainDensity: 30 },
+    storm: { sky: ['#111a24', '#04070c'], road: ['#20262f', '#0e1116'], lane: 'rgba(160,200,255,0.5)', weather: 'rain', rainDensity: 30, foliage: '#141e28', building: '#1a2228' },
     // Sunrise breaking through a thin ground mist.
-    dawn: { sky: ['#4a3a3a', '#1f1418'], road: ['#4a3f3a', '#2a201c'], lane: 'rgba(255,225,180,0.55)', weather: 'fog', fogAlpha: 0.10 },
+    dawn: { sky: ['#4a3a3a', '#1f1418'], road: ['#4a3f3a', '#2a201c'], lane: 'rgba(255,225,180,0.55)', weather: 'fog', fogAlpha: 0.10, foliage: '#4a3020', building: '#3a2c24' },
     // Thick countryside fog, low visibility.
-    fog: { sky: ['#3a3f3d', '#1b1f1d'], road: ['#454a48', '#262a29'], lane: 'rgba(220,225,220,0.4)', weather: 'fog', fogAlpha: 0.22 },
+    fog: { sky: ['#3a3f3d', '#1b1f1d'], road: ['#454a48', '#262a29'], lane: 'rgba(220,225,220,0.4)', weather: 'fog', fogAlpha: 0.22, foliage: '#2c3430', building: '#30352f' },
     // Neon-lit city night, magenta roadside signage.
-    neon: { sky: ['#1a0a2e', '#05020a'], road: ['#2a1a3a', '#140a1e'], lane: 'rgba(0,255,220,0.6)', weather: null, roadsideColor: 'rgba(255,60,220,0.4)' },
+    neon: { sky: ['#1a0a2e', '#05020a'], road: ['#2a1a3a', '#140a1e'], lane: 'rgba(0,255,220,0.6)', weather: null, roadsideColor: 'rgba(255,60,220,0.4)', foliage: '#2a1440', building: '#241a38' },
     // Amber desert sunset, heat-hazed blacktop.
-    desert: { sky: ['#4a2a1a', '#1f0f0a'], road: ['#5a4030', '#2a1c14'], lane: 'rgba(255,210,140,0.55)', weather: null, roadsideColor: 'rgba(255,140,40,0.3)' },
+    desert: { sky: ['#4a2a1a', '#1f0f0a'], road: ['#5a4030', '#2a1c14'], lane: 'rgba(255,210,140,0.55)', weather: null, roadsideColor: 'rgba(255,140,40,0.3)', foliage: '#5a4020', building: '#3a2c1c' },
     // Whiteout mountain-pass blizzard.
-    blizzard: { sky: ['#3a4550', '#151a20'], road: ['#4a545c', '#242a30'], lane: 'rgba(230,240,255,0.6)', weather: 'snow' },
+    blizzard: { sky: ['#3a4550', '#151a20'], road: ['#4a545c', '#242a30'], lane: 'rgba(230,240,255,0.6)', weather: 'snow', foliage: '#2a3a44', building: '#38424c' },
     // Final stretch: rain-slicked neon megahighway, redlining to the finish.
-    overdrive: { sky: ['#2a0a0a', '#0a0303'], road: ['#3a1418', '#160608'], lane: 'rgba(255,80,80,0.6)', weather: 'rain', rainDensity: 34, roadsideColor: 'rgba(255,40,40,0.35)' },
+    overdrive: { sky: ['#2a0a0a', '#0a0303'], road: ['#3a1418', '#160608'], lane: 'rgba(255,80,80,0.6)', weather: 'rain', rainDensity: 34, roadsideColor: 'rgba(255,40,40,0.35)', foliage: '#3a1010', building: '#2c1414' },
   };
 
   function getStageConfig(stage) {
@@ -68,16 +86,13 @@ function createRacingLevel(api) {
     };
   }
 
-  let player, obstacles, pickups, distance, speed, spawnTimer, fuelTimer, boostTimer, dashOffset, scoreTick, particles;
-  let lastSpawnX, lastSpawnInterval, nearMissStreak, popups, cfg;
+  // Instantiated once per level instance (not per frame / not per init) —
+  // cleared in init() so a fresh stage doesn't inherit stale effects.
+  const particles = FX.makeParticles(140);
+  const floatText = FX.makeFloatText(30);
 
-  function burst(x, y, color) {
-    for (let i = 0; i < 6; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const spd = 30 + Math.random() * 90;
-      particles.push({ x, y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, life: 0.3, color });
-    }
-  }
+  let player, obstacles, pickups, distance, speed, spawnTimer, fuelTimer, boostTimer, dashOffset, scoreTick;
+  let lastSpawnX, lastSpawnInterval, nearMissStreak, cfg, flashTimer;
 
   function drawFuel(ctx, x, y, w, h) {
     const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 150);
@@ -111,6 +126,38 @@ function createRacingLevel(api) {
     ctx.fill();
   }
 
+  // Soft forward-facing headlight cone, used on both the player and traffic
+  // at night-themed stages. Drawn before the car body so the sprite sits on
+  // top of its own light spill.
+  function drawHeadlightCone(ctx, cx, topY, w) {
+    const coneH = 68;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(cx - w * 0.28, topY);
+    ctx.lineTo(cx - w * 1.5, topY - coneH);
+    ctx.lineTo(cx + w * 1.5, topY - coneH);
+    ctx.lineTo(cx + w * 0.28, topY);
+    ctx.closePath();
+    ctx.clip();
+    const g = ctx.createLinearGradient(cx, topY, cx, topY - coneH);
+    g.addColorStop(0, 'rgba(255,248,210,0.32)');
+    g.addColorStop(1, 'rgba(255,248,210,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(cx - w * 1.5, topY - coneH, w * 3, coneH);
+    ctx.restore();
+  }
+
+  // Faint rear glow spill from taillights onto wet/dark asphalt behind traffic.
+  function drawTailGlow(ctx, cx, bottomY, w) {
+    const g = ctx.createRadialGradient(cx, bottomY, 0, cx, bottomY, w * 1.1);
+    g.addColorStop(0, 'rgba(255,70,70,0.28)');
+    g.addColorStop(1, 'rgba(255,70,70,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.ellipse(cx, bottomY, w * 1.1, w * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   function drawCar(ctx, x, y, w, h, body) {
     FX.shadow(ctx, x + w / 2, y + h + 4, w / 2 + 2, 4, 0.35);
     // tires
@@ -125,9 +172,20 @@ function createRacingLevel(api) {
     FX.roundRectPath(ctx, x, y, w, h, 4);
     ctx.stroke();
 
-    // thin chrome bumper trim, front and rear
+    // glossy paint highlight streak — a soft diagonal specular pass over the
+    // hood so the body reads as curved, glossy sheet metal rather than flat.
+    const glossGrad = ctx.createLinearGradient(x, y, x + w, y + h * 0.3);
+    glossGrad.addColorStop(0, 'rgba(255,255,255,0)');
+    glossGrad.addColorStop(0.42, 'rgba(255,255,255,0.26)');
+    glossGrad.addColorStop(0.58, 'rgba(255,255,255,0)');
+    ctx.fillStyle = glossGrad;
+    ctx.fillRect(x + 2, y + 2, w - 4, h * 0.24);
+
+    // thin chrome bumper trim, front and rear, plus a chrome side-mirror nub
     FX.chrome(ctx, x + 3, y, w - 6, 2);
     FX.chrome(ctx, x + 3, y + h - 2, w - 6, 2);
+    FX.chrome(ctx, x - 3, y + h * 0.32, 2, 4);
+    FX.chrome(ctx, x + w + 1, y + h * 0.32, 2, 4);
 
     // glassy windshield: multi-stop gradient + a bright diagonal reflection streak
     const wsY = y + h * 0.3, wsH = h * 0.32;
@@ -172,6 +230,71 @@ function createRacingLevel(api) {
     ctx.strokeRect(x + 0.5, 0, w - 1, H);
   }
 
+  // Parallax roadside scenery: trees / lit buildings / signs cycling past on
+  // both shoulders, purely procedural (no persistent state needed) so it
+  // scrolls in lockstep with dashOffset like everything else on the road.
+  function drawSceneryPiece(ctx, x, y, idx, theme) {
+    const kind = idx % 3;
+    if (kind === 0) {
+      ctx.fillStyle = 'rgba(40,28,18,0.9)';
+      ctx.fillRect(x - 1.5, y + 8, 3, 10);
+      ctx.fillStyle = theme.foliage || '#1e4a24';
+      ctx.beginPath();
+      ctx.moveTo(x, y - 10);
+      ctx.lineTo(x - 7, y + 9);
+      ctx.lineTo(x + 7, y + 9);
+      ctx.closePath();
+      ctx.fill();
+    } else if (kind === 1) {
+      const w = 14, h = 26;
+      ctx.fillStyle = theme.building || '#2a2a34';
+      ctx.fillRect(x - w / 2, y - h / 2, w, h);
+      ctx.fillStyle = 'rgba(255,220,140,0.75)';
+      for (let wy = 0; wy < 3; wy++) {
+        if ((idx + wy) % 2 === 0) ctx.fillRect(x - w / 2 + 3, y - h / 2 + 4 + wy * 8, 3, 4);
+        if ((idx + wy) % 3 === 0) ctx.fillRect(x + w / 2 - 6, y - h / 2 + 4 + wy * 8, 3, 4);
+      }
+    } else {
+      ctx.fillStyle = 'rgba(150,150,150,0.9)';
+      ctx.fillRect(x - 1, y - 2, 2, 16);
+      ctx.fillStyle = theme.roadsideColor ? theme.roadsideColor.replace(/[\d.]+\)$/, '0.85)') : 'rgba(255,207,79,0.85)';
+      ctx.fillRect(x - 6, y - 12, 12, 8);
+    }
+  }
+
+  function drawRoadside(ctx, theme) {
+    const spacing = 66;
+    const scroll = dashOffset * 1.5;
+    for (let i = -1; i < 9; i++) {
+      const tyL = ((i * spacing - scroll) % (H + spacing)) - spacing / 2;
+      const tyR = (((i + 0.5) * spacing - scroll) % (H + spacing)) - spacing / 2;
+      drawSceneryPiece(ctx, 16, tyL, i, theme);
+      drawSceneryPiece(ctx, W - 16, tyR, i + 1, theme);
+    }
+  }
+
+  // Radiating speed-line streaks from a forward vanishing point — kicks in
+  // at high speed, boosting, or hard lateral dodges, to sell velocity.
+  function drawSpeedLines(ctx, intensity) {
+    if (intensity <= 0) return;
+    const cx = W / 2, cy = H * 0.12;
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,255,255,${(0.05 + 0.14 * intensity).toFixed(3)})`;
+    ctx.lineWidth = 1.4;
+    const count = 10;
+    for (let i = 0; i < count; i++) {
+      const ang = (i / count) * Math.PI * 2 + dashOffset * 0.01;
+      const dx = Math.cos(ang), dy = Math.sin(ang);
+      const startR = 50;
+      const len = 36 + 130 * intensity;
+      ctx.beginPath();
+      ctx.moveTo(cx + dx * startR, cy + dy * startR);
+      ctx.lineTo(cx + dx * (startR + len), cy + dy * (startR + len));
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   function spawnObstacle() {
     const w = 34, h = 52;
     const minX = ROAD_X + 14, maxX = ROAD_X + ROAD_W - w - 14;
@@ -190,7 +313,8 @@ function createRacingLevel(api) {
       x = lo + Math.random() * (hi - lo);
     }
     lastSpawnX = x;
-    obstacles.push({ x, y: -h, w, h, color: CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)], scored: false, minGap: Infinity });
+    const palette = CAR_COLOR_THEMES[cfg.theme] || CAR_COLORS;
+    obstacles.push({ x, y: -h, w, h, color: palette[Math.floor(Math.random() * palette.length)], scored: false, minGap: Infinity });
   }
 
   return {
@@ -199,21 +323,23 @@ function createRacingLevel(api) {
       player = { x: W / 2 - PLAYER_W / 2, y: H - 90, w: PLAYER_W, h: PLAYER_H, vx: 0 };
       obstacles = [];
       pickups = [];
-      particles = [];
+      particles.clear();
+      floatText.clear();
       distance = 0;
       speed = cfg.baseSpeed;
       spawnTimer = cfg.firstSpawnDelay;
       lastSpawnX = null;
       lastSpawnInterval = cfg.firstSpawnDelay;
       nearMissStreak = 0;
-      popups = [];
       fuelTimer = 5 + Math.random() * 4;
       boostTimer = 0;
       dashOffset = 0;
       scoreTick = 0;
+      flashTimer = 0;
     },
 
     update(dt) {
+      flashTimer = Math.max(0, flashTimer - dt);
       boostTimer = Math.max(0, boostTimer - dt);
       const boosting = boostTimer > 0;
       const rampCap = 260 * (cfg.baseSpeed / 220);
@@ -229,8 +355,36 @@ function createRacingLevel(api) {
       distance += speed * dt * 0.05;
       dashOffset = (dashOffset + speed * dt) % 40;
 
-      if (boosting && Math.random() < 0.6) {
-        particles.push({ x: player.x + player.w / 2 + (Math.random() - 0.5) * 10, y: player.y + player.h, vx: (Math.random() - 0.5) * 40, vy: 120, life: 0.3, color: '#4fe3d0' });
+      // Exhaust / tire-smoke trail: always present, thicker with speed, and
+      // livelier while boosting or actively dodging side to side.
+      const dodging = Math.abs(player.vx) > 0;
+      const speedFactor = Math.min(1, speed / (cfg.baseSpeed * 1.8));
+      const trailChance = 0.12 + speedFactor * 0.3 + (dodging ? 0.2 : 0) + (boosting ? 0.35 : 0);
+      if (Math.random() < trailChance) {
+        particles.spawn(
+          player.x + player.w / 2 + (Math.random() - 0.5) * player.w * 0.7,
+          player.y + player.h - 2,
+          {
+            vx: (Math.random() - 0.5) * 30 - player.vx * 0.06,
+            vy: 50 + Math.random() * 50,
+            gravity: -20,
+            life: 0.2 + Math.random() * 0.2,
+            size: 2.5 + Math.random() * 2.5,
+            color: boosting ? '#8fffe0' : 'rgba(210,210,210,0.5)',
+          }
+        );
+      }
+      // Tire smoke puffs from the trailing wheel while dodging hard.
+      if (dodging && Math.random() < 0.35) {
+        const wx = player.x + (player.vx < 0 ? player.w : 0);
+        particles.spawn(wx, player.y + player.h - 3, {
+          vx: (Math.random() - 0.5) * 24,
+          vy: 20 + Math.random() * 20,
+          gravity: 0,
+          life: 0.25 + Math.random() * 0.15,
+          size: 2 + Math.random() * 2,
+          color: 'rgba(190,190,190,0.45)',
+        });
       }
 
       spawnTimer -= dt;
@@ -257,17 +411,18 @@ function createRacingLevel(api) {
           addScore(10);
           sfx('pickup');
           shake(0.08, 2);
-          burst(p.x + p.w / 2, p.y + p.h / 2, '#4fe3d0');
-          popups.push({ x: p.x + p.w / 2, y: p.y, text: '+10', life: 0.7 });
+          particles.burst(p.x + p.w / 2, p.y + p.h / 2, 10, {
+            colors: ['#4fe3d0', '#c8fff5', '#8fffe0'],
+            speedMin: 40, speedMax: 130, lifeMin: 0.25, lifeMax: 0.45, sizeMin: 2, sizeMax: 4,
+          });
+          floatText.spawn(p.x + p.w / 2, p.y, '+10', '#fff6a8', { life: 0.7, size: 11 });
           return false;
         }
         return p.y < H + 60;
       });
 
-      particles.forEach((pt) => { pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.life -= dt; });
-      particles = particles.filter((pt) => pt.life > 0);
-      popups.forEach((p) => { p.y -= 26 * dt; p.life -= dt; });
-      popups = popups.filter((p) => p.life > 0);
+      particles.update(dt);
+      floatText.update(dt);
 
       // Near-miss / boosted-through-traffic feedback: reward tight dodges instead
       // of just penalizing hits. Tracks the closest horizontal gap while an
@@ -284,8 +439,11 @@ function createRacingLevel(api) {
               addScore(3);
               sfx('bounce');
               shake(0.05, 1.5);
-              burst(player.x + player.w / 2, player.y + player.h / 2, '#8fffe0');
-              popups.push({ x: player.x + player.w / 2, y: player.y, text: '+3', life: 0.7 });
+              particles.burst(player.x + player.w / 2, player.y + player.h / 2, 9, {
+                colors: ['#8fffe0', '#fff', '#4fe3d0'],
+                speedMin: 50, speedMax: 150, lifeMin: 0.2, lifeMax: 0.4, sizeMin: 2, sizeMax: 4,
+              });
+              floatText.spawn(player.x + player.w / 2, player.y, '+3', '#8fffe0', { life: 0.6, size: 10 });
             }
           } else {
             const gap = o.x + o.w <= player.x ? player.x - (o.x + o.w) : o.x - (player.x + player.w);
@@ -298,13 +456,29 @@ function createRacingLevel(api) {
           addScore(bonus);
           sfx('swing');
           shake(0.05, 1.5);
-          popups.push({ x: o.x + o.w / 2, y: player.y, text: `+${bonus}`, life: 0.7 });
+          // Quick directional "whoosh" streak on the side the car just cleared.
+          const fromLeft = o.x < player.x;
+          particles.burst(fromLeft ? o.x + o.w : o.x, player.y + player.h / 2, 6, {
+            colors: ['#dfefff', '#9fd8ff'],
+            angle: fromLeft ? 0 : Math.PI,
+            spread: 0.5,
+            speedMin: 120, speedMax: 220, lifeMin: 0.12, lifeMax: 0.22, sizeMin: 2, sizeMax: 4,
+          });
+          floatText.spawn(o.x + o.w / 2, player.y, `+${bonus}`, '#fff6a8', { life: 0.7, size: 11 });
         }
       });
 
       if (!boosting) {
         for (const o of obstacles) {
           if (player.x < o.x + o.w && player.x + player.w > o.x && player.y < o.y + o.h && player.y + player.h > o.y) {
+            sfx('hit');
+            shake(0.22, 6);
+            flashTimer = 0.2;
+            particles.burst(player.x + player.w / 2, player.y + player.h / 2, 14, {
+              colors: ['#ffcf4f', '#ff6b3b', '#fff3c4', '#8a8a8a'],
+              speedMin: 60, speedMax: 220, lifeMin: 0.25, lifeMax: 0.5, sizeMin: 2, sizeMax: 5,
+              gravity: 160,
+            });
             loseLife();
             return;
           }
@@ -324,15 +498,11 @@ function createRacingLevel(api) {
 
     draw(ctx) {
       const theme = THEMES[cfg.theme] || THEMES.day;
+      const nightTheme = NIGHT_THEMES.has(cfg.theme);
       FX.gradientRect(ctx, 0, 0, W, H, theme.sky[0], theme.sky[1]);
 
-      // scrolling roadside scenery ticks (cheap parallax, reuses existing dash scroll)
-      ctx.fillStyle = theme.roadsideColor || 'rgba(0,0,0,0.25)';
-      for (let i = -1; i < 8; i++) {
-        const ty = ((i * 60 - dashOffset * 1.5) % (H + 60)) - 30;
-        ctx.fillRect(18, ty, 10, 22);
-        ctx.fillRect(W - 28, ty + 30, 10, 22);
-      }
+      // scrolling parallax roadside scenery: trees, lit buildings, signs
+      drawRoadside(ctx, theme);
 
       FX.gradientRect(ctx, ROAD_X, 0, ROAD_W, H, theme.road[0], theme.road[1]);
 
@@ -340,6 +510,20 @@ function createRacingLevel(api) {
       ctx.fillStyle = 'rgba(0,0,0,0.12)';
       ctx.fillRect(ROAD_X + ROAD_W * 0.22, 0, 4, H);
       ctx.fillRect(ROAD_X + ROAD_W * 0.78, 0, 4, H);
+
+      // faint motion-blur echo of the lane dashes, offset further along the
+      // scroll, to sell a sense of speed underneath the crisp main dashes
+      ctx.strokeStyle = theme.lane.replace(/[\d.]+\)$/, '0.16)');
+      ctx.lineWidth = 3;
+      ctx.setLineDash([18, 18]);
+      ctx.lineDashOffset = -dashOffset * 1.6;
+      for (let i = 1; i < 3; i++) {
+        const x = ROAD_X + (ROAD_W / 3) * i;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, H);
+        ctx.stroke();
+      }
 
       ctx.strokeStyle = theme.lane;
       ctx.lineWidth = 3;
@@ -386,25 +570,24 @@ function createRacingLevel(api) {
         }
       }
 
-      obstacles.forEach((o) => drawCar(ctx, o.x, o.y, o.w, o.h, o.color));
+      obstacles.forEach((o) => {
+        if (nightTheme) {
+          drawTailGlow(ctx, o.x + o.w / 2, o.y + o.h - 1, o.w * 0.5);
+          drawHeadlightCone(ctx, o.x + o.w / 2, o.y, o.w);
+        }
+        drawCar(ctx, o.x, o.y, o.w, o.h, o.color);
+      });
       pickups.forEach((p) => drawFuel(ctx, p.x, p.y, p.w, p.h));
 
-      particles.forEach((pt) => {
-        ctx.fillStyle = pt.color;
-        ctx.globalAlpha = Math.max(0, pt.life / 0.3);
-        ctx.fillRect(pt.x - 2, pt.y - 2, 4, 4);
-        ctx.globalAlpha = 1;
-      });
+      // speed-line overlay: kicks in above baseline speed, and gets an extra
+      // push from nitro or a hard lateral dodge
+      const speedIntensity = Math.max(0, Math.min(1, (speed - cfg.baseSpeed * 1.05) / (cfg.baseSpeed * 0.9)));
+      const dodgeKick = Math.abs(player.vx) > MOVE_SPEED * 0.9 ? 0.25 : 0;
+      const totalIntensity = Math.min(1, speedIntensity + (boostTimer > 0 ? 0.4 : 0) + dodgeKick);
+      drawSpeedLines(ctx, totalIntensity);
 
-      ctx.font = 'bold 10px monospace';
-      ctx.textAlign = 'center';
-      popups.forEach((p) => {
-        ctx.fillStyle = '#fff6a8';
-        ctx.globalAlpha = Math.max(0, p.life / 0.7);
-        ctx.fillText(p.text, p.x, p.y);
-        ctx.globalAlpha = 1;
-      });
-      ctx.textAlign = 'left';
+      particles.draw(ctx);
+      floatText.draw(ctx);
 
       if (boostTimer > 0) {
         ctx.strokeStyle = 'rgba(79, 227, 208, 0.6)';
@@ -424,7 +607,11 @@ function createRacingLevel(api) {
         ctx.ellipse(player.x + player.w / 2, player.y + player.h + 6, 10 * flicker, 16 * flicker, 0, 0, Math.PI * 2);
         ctx.fill();
       }
+      if (nightTheme) drawHeadlightCone(ctx, player.x + player.w / 2, player.y, player.w);
       drawCar(ctx, player.x, player.y, player.w, player.h, boostTimer > 0 ? '#8fffe0' : '#4fe3d0');
+
+      // full-screen impact wash on a fresh crash, fading out over flashTimer
+      if (flashTimer > 0) FX.flash(ctx, W, H, '#ff3b3b', (flashTimer / 0.2) * 0.35);
 
       ctx.fillStyle = '#e8ecff';
       ctx.font = '9px monospace';

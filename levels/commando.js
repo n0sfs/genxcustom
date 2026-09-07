@@ -98,6 +98,18 @@ function createCommandoLevel(api) {
     },
   };
 
+  // Per-theme ambient flavor (weather/atmosphere touches only - never touches
+  // spawns/pacing). Purely additive on top of THEMES above.
+  const AMBIENT = {
+    river: { type: 'shimmer' },
+    dusk2: { type: 'fog' },
+    ruins: { type: 'embers', intensity: 1 },
+    storm: { type: 'rain', intensity: 1, lightning: true },
+    ruinsNight: { type: 'embers', intensity: 1.25 },
+    storm2: { type: 'rain', intensity: 1.3, lightning: true },
+    gauntlet: { type: 'embers', intensity: 1.9, lightning: true },
+  };
+
   // Stage 1: the original default layout/pace.
   const STAGE_CONFIGS = [
     {
@@ -439,15 +451,17 @@ function createCommandoLevel(api) {
 
   const extraction = { x: WORLD_W - 70, y: GROUND_Y - 90, w: 50, h: 90 };
 
-  let player, bullets, enemyBullets, grunts, turrets, choppers, crates, powerups, particles, popups, camX, extractionOpen;
-  let fireRateMul, speedMul, theme;
+  // Particle/text systems live once per level instance (not recreated per
+  // stage/frame) - init() just clears them between stages.
+  const hitFx = FX.makeParticles(140);
+  const ambientFx = FX.makeParticles(70);
+  const floatText = FX.makeFloatText(24);
 
-  function burst(x, y, color, n) {
-    for (let i = 0; i < n; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const spd = 60 + Math.random() * 180;
-      particles.push({ x, y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, life: 0.35, color });
-    }
+  let player, bullets, enemyBullets, grunts, turrets, choppers, crates, powerups, rainDrops, camX, extractionOpen;
+  let fireRateMul, speedMul, theme, ambientCfg, ambientTimer, lightningTimer, lightningFlash, screenFlash, elapsed;
+
+  function popup(x, y, text, color, size) {
+    floatText.spawn(x, y - 6, text, color, { life: 0.8, vy: -22, size: size || 10 });
   }
 
   function aliveEnemies() {
@@ -460,6 +474,17 @@ function createCommandoLevel(api) {
       fireRateMul = cfg.fireRateMul;
       speedMul = cfg.speedMul;
       theme = THEMES[cfg.theme] || THEMES.day;
+      ambientCfg = AMBIENT[cfg.theme] || null;
+      ambientTimer = 0;
+      lightningTimer = 2 + Math.random() * 3;
+      lightningFlash = 0;
+      screenFlash = 0;
+      elapsed = 0;
+      rainDrops = ambientCfg && ambientCfg.type === 'rain'
+        ? Array.from({ length: Math.round(36 * (ambientCfg.intensity || 1)) }, () => ({
+            x: Math.random() * W, y: Math.random() * H, len: 8 + Math.random() * 10, speed: 420 + Math.random() * 260,
+          }))
+        : [];
 
       player = {
         x: 40, y: GROUND_Y - 40, w: 20, h: 40,
@@ -468,8 +493,9 @@ function createCommandoLevel(api) {
       };
       bullets = [];
       enemyBullets = [];
-      particles = [];
-      popups = [];
+      hitFx.clear();
+      ambientFx.clear();
+      floatText.clear();
       powerups = [];
       camX = 0;
       extractionOpen = false;
@@ -485,12 +511,62 @@ function createCommandoLevel(api) {
     },
 
     update(dt) {
+      elapsed += dt;
       player.invuln = Math.max(0, player.invuln - dt);
       player.hitFlash = Math.max(0, player.hitFlash - dt);
       player.shotCooldown = Math.max(0, player.shotCooldown - dt);
       player.rapidTimer = Math.max(0, player.rapidTimer - dt);
       player.killStreakTimer = Math.max(0, player.killStreakTimer - dt);
       if (player.killStreakTimer <= 0) player.killStreak = 0;
+      screenFlash = Math.max(0, screenFlash - dt * 1.6);
+      lightningFlash = Math.max(0, lightningFlash - dt * 3.5);
+
+      // Ambient atmosphere: a small themed touch of life per stage - water
+      // shimmer, drifting fog, rising embers, or driving rain + lightning.
+      if (ambientCfg) {
+        ambientTimer -= dt;
+        const boost = ambientCfg.intensity || 1;
+        if (ambientCfg.type === 'shimmer' && ambientTimer <= 0) {
+          ambientTimer = 0.05;
+          const sx = camX + Math.random() * W;
+          ambientFx.spawn(sx, GROUND_Y + 2 + Math.random() * 2, {
+            vx: (Math.random() - 0.5) * 10, vy: -4 - Math.random() * 6, life: 0.35, size: 1 + Math.random() * 1.5,
+            color: Math.random() < 0.5 ? '#bfe8ff' : '#eafff2', gravity: 20,
+          });
+        } else if (ambientCfg.type === 'fog' && ambientTimer <= 0) {
+          ambientTimer = 0.5;
+          const fx2 = camX - 40 + Math.random() * (W + 80);
+          ambientFx.spawn(fx2, GROUND_Y - 100 - Math.random() * 60, {
+            vx: 6 + Math.random() * 10, vy: -2, life: 4 + Math.random() * 2, size: 26 + Math.random() * 22,
+            color: 'rgba(150,170,140,0.16)', shrink: false,
+          });
+        } else if (ambientCfg.type === 'embers' && ambientTimer <= 0) {
+          ambientTimer = 0.18 / boost;
+          const ex = camX + Math.random() * W;
+          ambientFx.spawn(ex, GROUND_Y + 4, {
+            vx: (Math.random() - 0.5) * 18, vy: -30 - Math.random() * 40, life: 1.1 + Math.random() * 0.8,
+            size: 1.5 + Math.random() * 2, color: Math.random() < 0.5 ? '#ff9a4f' : '#ffd24f', gravity: -6,
+          });
+        } else if (ambientCfg.type === 'rain') {
+          rainDrops.forEach((d) => {
+            d.y += d.speed * dt;
+            d.x -= 40 * dt;
+            if (d.y > H) { d.y = -10; d.x = Math.random() * W; }
+            if (d.x < -10) d.x = W + 10;
+          });
+        }
+        if (ambientCfg.lightning) {
+          lightningTimer -= dt;
+          if (lightningTimer <= 0) {
+            lightningTimer = 3 + Math.random() * 5;
+            lightningFlash = 0.55;
+            shake(0.08, 1.5);
+          }
+        }
+      }
+      hitFx.update(dt);
+      ambientFx.update(dt);
+      floatText.update(dt);
 
       let mvx = 0, mvy = 0;
       if (isDown('ArrowLeft', 'a')) mvx = -1;
@@ -509,7 +585,11 @@ function createCommandoLevel(api) {
         const my = player.y + player.h / 2 + player.facing.dy * 16 - 4;
         bullets.push({ x: mx, y: my, vx: player.facing.dx * 640, vy: player.facing.dy * 640, w: 6, h: 3 });
         sfx('shoot');
-        particles.push({ x: mx, y: my, vx: player.facing.dx * -40, vy: player.facing.dy * -40, life: 0.06, color: '#ffd24f' });
+        const muzzleAngle = Math.atan2(player.facing.dy, player.facing.dx);
+        hitFx.burst(mx, my, 5, {
+          colors: ['#fff2b0', '#ffd24f', '#ff9a4f'], angle: muzzleAngle, spread: 0.8,
+          speedMin: 90, speedMax: 240, lifeMin: 0.05, lifeMax: 0.11, sizeMin: 1.5, sizeMax: 3,
+        });
       }
 
       bullets.forEach((b) => { b.x += b.vx * dt; b.y += b.vy * dt; });
@@ -546,13 +626,17 @@ function createCommandoLevel(api) {
       });
 
       enemyBullets.forEach((b) => { b.x += b.vx * dt; b.y += b.vy * dt; });
-      enemyBullets = enemyBullets.filter((b) => b.x > camX - 20 && b.x < camX + W + 20 && b.y > -20 && b.y < H + 20);
-
-      particles.forEach((p) => { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; });
-      particles = particles.filter((p) => p.life > 0);
-
-      popups.forEach((p) => { p.y -= 20 * dt; p.life -= dt; });
-      popups = popups.filter((p) => p.life > 0);
+      enemyBullets = enemyBullets.filter((b) => {
+        if (b.vy > 0 && b.y >= GROUND_Y) {
+          // terrain impact puff where a dropped chopper round hits the ground
+          hitFx.burst(b.x, GROUND_Y, 5, {
+            colors: ['#8a6238', '#5a4020'], speedMin: 30, speedMax: 90, lifeMin: 0.15, lifeMax: 0.3,
+            sizeMin: 1, sizeMax: 2.5, angle: -Math.PI / 2, spread: 1.6,
+          });
+          return false;
+        }
+        return b.x > camX - 20 && b.x < camX + W + 20 && b.y > -20 && b.y < H + 20;
+      });
 
       const targets = aliveEnemies();
       bullets.forEach((b) => {
@@ -570,13 +654,17 @@ function createCommandoLevel(api) {
           player.killStreak = player.killStreakTimer > 0 ? player.killStreak + 1 : 1;
           player.killStreakTimer = 2.2;
           const streakBonus = Math.min(player.killStreak - 1, 6) * 5;
-          addScore(baseScore + streakBonus);
-          burst(e.x + e.w / 2, e.y + e.h / 2, '#ff9a4f', bigTarget ? 14 : 9);
+          const total = baseScore + streakBonus;
+          addScore(total);
+          const gauntletBoost = ambientCfg ? (ambientCfg.intensity || 1) : 1;
+          hitFx.burst(e.x + e.w / 2, e.y + e.h / 2, Math.min(18, Math.round((bigTarget ? 14 : 9) * Math.min(1.4, gauntletBoost))), {
+            colors: ['#ff9a4f', '#ffd24f', '#5a4a3a'], speedMin: 60, speedMax: 220, lifeMin: 0.2, lifeMax: 0.45,
+            sizeMin: 1.5, sizeMax: 3.5, gravity: 140,
+          });
           sfx('explosion');
           shake(bigTarget ? 0.14 : 0.08, bigTarget ? 3.5 : 2);
-          if (player.killStreak > 1) {
-            popups.push({ x: e.x + e.w / 2, y: e.y - 6, life: 0.7, text: `+${baseScore + streakBonus} x${player.killStreak}` });
-          }
+          popup(e.x + e.w / 2, e.y, player.killStreak > 1 ? `+${total} x${player.killStreak}` : `+${total}`,
+            player.killStreak > 1 ? '#ff9a4f' : '#ffd24f', player.killStreak > 1 ? 11 : 9);
           if (player.killStreak > 0 && player.killStreak % 3 === 0) sfx('pickup');
           break;
         }
@@ -590,7 +678,11 @@ function createCommandoLevel(api) {
             c.alive = false;
             b.hit = true;
             addScore(10);
-            burst(c.x + c.w / 2, c.y + c.h / 2, '#8a6238', 7);
+            hitFx.burst(c.x + c.w / 2, c.y + c.h / 2, 7, {
+              colors: ['#8a6238', '#5a4020', '#c9a878'], speedMin: 50, speedMax: 160, lifeMin: 0.2, lifeMax: 0.4,
+              sizeMin: 1.5, sizeMax: 3, gravity: 180,
+            });
+            popup(c.x + c.w / 2, c.y, '+10', '#eaffee', 8);
             sfx('hit');
             if (Math.random() < RAPID_DROP_CHANCE) {
               powerups.push({ x: c.x + c.w / 2 - 8, y: c.y - 4, w: 16, h: 16 });
@@ -617,6 +709,13 @@ function createCommandoLevel(api) {
         if (hitByBullet || hitByGrunt) {
           player.invuln = 1.3;
           player.hitFlash = 0.4;
+          screenFlash = 0.4;
+          hitFx.burst(player.x + player.w / 2, player.y + player.h / 2, 12, {
+            colors: ['#ff5c5c', '#ff9a4f', '#e8ecff'], speedMin: 70, speedMax: 220, lifeMin: 0.2, lifeMax: 0.4,
+            sizeMin: 1.5, sizeMax: 3.5, gravity: 120,
+          });
+          sfx('hurt');
+          shake(0.22, 5);
           loseLife();
           return;
         }
@@ -717,26 +816,35 @@ function createCommandoLevel(api) {
       }
 
       grunts.filter((e) => e.alive).forEach((e) => {
+        // idle patrol sway - a small vertical bob so marching grunts read as alive
+        const bob = Math.sin(elapsed * 5 + e.x * 0.06) * 1.4;
+        const ey = e.y + bob;
         FX.shadow(ctx, e.x + e.w / 2, e.y + e.h + 2, e.w / 2, 3, 0.3);
-        FX.bevelRect(ctx, e.x, e.y + 10, e.w, e.h - 10, '#8a3a3a', 2);
+        FX.bevelRect(ctx, e.x, ey + 10, e.w, e.h - 10, '#8a3a3a', 2);
         ctx.strokeStyle = 'rgba(0,0,0,0.5)';
         ctx.lineWidth = 1.5;
-        ctx.strokeRect(e.x, e.y + 10, e.w, e.h - 10);
-        ctx.fillStyle = '#d9b98a';
+        ctx.strokeRect(e.x, ey + 10, e.w, e.h - 10);
+        // rim shadow along the base of the torso for extra roundness
+        ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+        ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.arc(e.x + e.w / 2, e.y + 6, 7, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.moveTo(e.x + 2, ey + e.h - 2);
+        ctx.lineTo(e.x + e.w - 2, ey + e.h - 2);
+        ctx.stroke();
+        FX.sphere(ctx, e.x + e.w / 2, ey + 6, 7, '#d9b98a');
         ctx.strokeStyle = 'rgba(0,0,0,0.45)';
         ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(e.x + e.w / 2, ey + 6, 7, 0, Math.PI * 2);
         ctx.stroke();
         ctx.fillStyle = 'rgba(255,255,255,0.65)';
         ctx.beginPath();
-        ctx.arc(e.x + e.w / 2 + e.dir * 2, e.y + 4, 1.2, 0, Math.PI * 2);
+        ctx.arc(e.x + e.w / 2 + e.dir * 2, ey + 4, 1.2, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = '#3a3a3a';
-        ctx.fillRect(e.x - e.dir * 4, e.y + 14, 12, 3);
+        ctx.fillRect(e.x - e.dir * 4, ey + 14, 12, 3);
         ctx.fillStyle = 'rgba(255,255,255,0.35)';
-        ctx.fillRect(e.x - e.dir * 4, e.y + 14, 12, 1);
+        ctx.fillRect(e.x - e.dir * 4, ey + 14, 12, 1);
       });
 
       turrets.filter((e) => e.alive).forEach((e) => {
@@ -752,12 +860,27 @@ function createCommandoLevel(api) {
         ctx.strokeRect(e.x + e.w / 2 - 3, e.y - 10, 16, 6);
         ctx.fillStyle = 'rgba(255,255,255,0.55)';
         ctx.fillRect(e.x + e.w / 2 - 3, e.y - 10, 16, 1.5);
+        // warm barrel glow telegraphs an imminent shot
+        if (e.fireTimer < 0.15) {
+          const glowA = 1 - e.fireTimer / 0.15;
+          const bgx = e.x + e.w / 2 + 13, bgy = e.y - 7;
+          const bgrad = ctx.createRadialGradient(bgx, bgy, 0, bgx, bgy, 6);
+          bgrad.addColorStop(0, `rgba(255,200,140,${0.85 * glowA})`);
+          bgrad.addColorStop(1, 'rgba(255,150,60,0)');
+          ctx.fillStyle = bgrad;
+          ctx.beginPath();
+          ctx.arc(bgx, bgy, 6, 0, Math.PI * 2);
+          ctx.fill();
+        }
       });
 
       choppers.filter((e) => e.alive).forEach((e) => {
-        const chx = e.x + e.w / 2, chy = e.y + e.h / 2;
+        // gentle hover bob so patrolling choppers don't sit dead-still in the air
+        const hbob = Math.sin(elapsed * 4 + e.x * 0.05) * 2;
+        const by = e.y + hbob;
+        const chx = e.x + e.w / 2, chy = by + e.h / 2;
         FX.shadow(ctx, chx, GROUND_Y, e.w / 2, 6, 0.2);
-        const chopGrad = ctx.createLinearGradient(chx, e.y, chx, e.y + e.h);
+        const chopGrad = ctx.createLinearGradient(chx, by, chx, by + e.h);
         chopGrad.addColorStop(0, FX.shade('#3a3a44', 35));
         chopGrad.addColorStop(1, FX.shade('#3a3a44', -25));
         ctx.fillStyle = chopGrad;
@@ -771,16 +894,16 @@ function createCommandoLevel(api) {
         ctx.strokeStyle = 'rgba(255,255,255,0.55)';
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.moveTo(e.x - 10, e.y + e.h / 2);
-        ctx.lineTo(e.x + e.w + 10, e.y + e.h / 2);
+        ctx.moveTo(e.x - 10, by + e.h / 2);
+        ctx.lineTo(e.x + e.w + 10, by + e.h / 2);
         ctx.stroke();
         ctx.strokeStyle = 'rgba(255,255,255,0.2)';
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(e.x - 6, e.y + e.h / 2 - 3);
-        ctx.lineTo(e.x + e.w + 6, e.y + e.h / 2 - 3);
-        ctx.moveTo(e.x - 6, e.y + e.h / 2 + 3);
-        ctx.lineTo(e.x + e.w + 6, e.y + e.h / 2 + 3);
+        ctx.moveTo(e.x - 6, by + e.h / 2 - 3);
+        ctx.lineTo(e.x + e.w + 6, by + e.h / 2 - 3);
+        ctx.moveTo(e.x - 6, by + e.h / 2 + 3);
+        ctx.lineTo(e.x + e.w + 6, by + e.h / 2 + 3);
         ctx.stroke();
         ctx.fillStyle = '#1a1a1e';
         ctx.beginPath();
@@ -798,23 +921,6 @@ function createCommandoLevel(api) {
       enemyBullets.forEach((b) => ctx.fillRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h));
       ctx.restore();
 
-      particles.forEach((p) => {
-        ctx.fillStyle = p.color;
-        ctx.globalAlpha = Math.max(0, p.life / 0.35);
-        ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
-        ctx.globalAlpha = 1;
-      });
-
-      ctx.font = 'bold 9px monospace';
-      ctx.textAlign = 'center';
-      popups.forEach((p) => {
-        ctx.fillStyle = '#ffd24f';
-        ctx.globalAlpha = Math.max(0, p.life / 0.7);
-        ctx.fillText(p.text, p.x, p.y);
-        ctx.globalAlpha = 1;
-      });
-      ctx.textAlign = 'left';
-
       const flip = player.facing.dx < 0;
       FX.shadow(ctx, player.x + player.w / 2, player.y + player.h + 3, player.w / 2, 3, 0.3);
       const playerBody = (player.hitFlash > 0 && Math.floor(player.hitFlash * 20) % 2 === 0) ? '#ff5c5c' : '#2a5a7a';
@@ -822,12 +928,18 @@ function createCommandoLevel(api) {
       ctx.strokeStyle = 'rgba(0,0,0,0.55)';
       ctx.lineWidth = 1.5;
       ctx.strokeRect(player.x, player.y + 12, player.w, player.h - 12);
-      ctx.fillStyle = '#d9b98a';
+      // rim shadow along the torso base for extra roundness
+      ctx.strokeStyle = 'rgba(0,0,0,0.32)';
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.arc(player.x + player.w / 2, player.y + 8, 8, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.moveTo(player.x + 2, player.y + player.h - 2);
+      ctx.lineTo(player.x + player.w - 2, player.y + player.h - 2);
+      ctx.stroke();
+      FX.sphere(ctx, player.x + player.w / 2, player.y + 8, 8, '#d9b98a');
       ctx.strokeStyle = 'rgba(0,0,0,0.5)';
       ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(player.x + player.w / 2, player.y + 8, 8, 0, Math.PI * 2);
       ctx.stroke();
 
       const gunX = player.x + player.w / 2 + player.facing.dx * 6 - (flip ? 14 : 0);
@@ -845,16 +957,36 @@ function createCommandoLevel(api) {
       if (player.shotCooldown > activeCooldown * 0.6) {
         const mfx = player.x + player.w / 2 + player.facing.dx * 20;
         const mfy = player.y + player.h / 2 + player.facing.dy * 6 - 2;
-        const flashGrad = ctx.createRadialGradient(mfx, mfy, 0, mfx, mfy, 10);
-        flashGrad.addColorStop(0, 'rgba(255,224,140,0.9)');
-        flashGrad.addColorStop(1, 'rgba(255,224,140,0)');
+        const flashGrad = ctx.createRadialGradient(mfx, mfy, 0, mfx, mfy, 12);
+        flashGrad.addColorStop(0, 'rgba(255,255,255,0.95)');
+        flashGrad.addColorStop(0.35, 'rgba(255,224,140,0.85)');
+        flashGrad.addColorStop(1, 'rgba(255,150,60,0)');
         ctx.fillStyle = flashGrad;
         ctx.beginPath();
-        ctx.arc(mfx, mfy, 10, 0, Math.PI * 2);
+        ctx.arc(mfx, mfy, 12, 0, Math.PI * 2);
         ctx.fill();
       }
 
+      // ambient atmosphere + impact/score feedback draw on top of all sprites,
+      // still in world space, before the camera transform is undone
+      ambientFx.draw(ctx);
+      hitFx.draw(ctx);
+      floatText.draw(ctx);
+      ctx.textAlign = 'left';
+
       ctx.restore();
+
+      if (ambientCfg && ambientCfg.type === 'rain') {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(190,205,255,0.35)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        rainDrops.forEach((d) => { ctx.moveTo(d.x, d.y); ctx.lineTo(d.x - 4, d.y + d.len); });
+        ctx.stroke();
+        ctx.restore();
+      }
+      if (lightningFlash > 0) FX.flash(ctx, W, H, '#e8ecff', Math.min(0.6, lightningFlash));
+      if (screenFlash > 0) FX.flash(ctx, W, H, '#ff3030', Math.min(0.5, screenFlash * 0.6));
 
       const remaining = aliveEnemies().length;
       ctx.fillStyle = '#e8ecff';
@@ -867,6 +999,19 @@ function createCommandoLevel(api) {
       if (player.killStreak > 1 && player.killStreakTimer > 0) {
         ctx.fillStyle = '#ff9a4f';
         ctx.fillText(`STREAK x${player.killStreak}`, 8, 28);
+      }
+
+      // screen-edge red pulse: ramps up on your last life, and the final
+      // gauntlet stage always runs a faint version of it for extra menace
+      const lowHealth = typeof api.lives === 'number' && api.lives <= 1;
+      const gauntletDanger = ambientCfg && (ambientCfg.intensity || 1) > 1.5 ? 0.1 : 0;
+      const dangerAlpha = lowHealth ? Math.max(gauntletDanger, 0.22 + Math.sin(elapsed * 6) * 0.14) : gauntletDanger;
+      if (dangerAlpha > 0) {
+        const dgrad = ctx.createRadialGradient(W / 2, H / 2, H * 0.32, W / 2, H / 2, H * 0.78);
+        dgrad.addColorStop(0, 'rgba(255,0,0,0)');
+        dgrad.addColorStop(1, `rgba(255,20,20,${dangerAlpha})`);
+        ctx.fillStyle = dgrad;
+        ctx.fillRect(0, 0, W, H);
       }
     },
   };

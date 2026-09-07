@@ -487,6 +487,13 @@ function createMazeLevel(api) {
     }
   }
 
+  // Juice systems — created once per level instance (not per frame/init) and
+  // driven from update()/draw() every tick. Cleared on init() so a fresh
+  // stage/retry never carries over stray particles from before.
+  const particles = FX.makeParticles(90);
+  const floatText = FX.makeFloatText(24);
+  let flashTimer = 0, flashMax = 0.35;
+
   let grid, dots, powerPellets, player, ghosts, mouthPhase, frightTimer, ghostChain;
   let currentStage, totalCollectibles, stageWanderBase;
 
@@ -549,11 +556,17 @@ function createMazeLevel(api) {
       mouthPhase = 0;
       frightTimer = 0;
       ghostChain = 0;
+      particles.clear();
+      floatText.clear();
+      flashTimer = 0;
     },
 
     update(dt) {
       mouthPhase += dt * 10;
       if (frightTimer > 0) frightTimer = Math.max(0, frightTimer - dt);
+      if (flashTimer > 0) flashTimer = Math.max(0, flashTimer - dt);
+      particles.update(dt);
+      floatText.update(dt);
 
       if (isDown('ArrowRight', 'd')) player.nextDir = { dx: 1, dy: 0 };
       else if (isDown('ArrowLeft', 'a')) player.nextDir = { dx: -1, dy: 0 };
@@ -572,6 +585,11 @@ function createMazeLevel(api) {
         dots.delete(key);
         addScore(2);
         sfx('hop');
+        const dp = cellToPx(player.col, player.row);
+        particles.burst(dp.x, dp.y, 3, {
+          colors: ['#ffd24f', '#fff5b0'], speedMin: 20, speedMax: 60,
+          lifeMin: 0.15, lifeMax: 0.3, sizeMin: 1, sizeMax: 2, gravity: 40,
+        });
       }
       if (powerPellets.has(key)) {
         powerPellets.delete(key);
@@ -579,6 +597,12 @@ function createMazeLevel(api) {
         ghostChain = 0;
         addScore(10);
         sfx('pickup');
+        const pp = cellToPx(player.col, player.row);
+        particles.burst(pp.x, pp.y, 10, {
+          colors: ['#fff5b0', '#ffd24f', '#ffffff'], speedMin: 50, speedMax: 140,
+          lifeMin: 0.3, lifeMax: 0.6, sizeMin: 2, sizeMax: 4, gravity: 20,
+        });
+        floatText.spawn(pp.x, pp.y - 10, '+10', '#fff5b0', { life: 0.7, vy: -45, size: 13 });
       }
 
       // Difficulty ramps up as the board clears: ghosts get faster and more
@@ -621,19 +645,32 @@ function createMazeLevel(api) {
         if (Math.hypot(gPos.x - pPos.x, gPos.y - pPos.y) < CELL * 0.5) {
           if (frightTimer > 0) {
             ghostChain++;
-            addScore(50 * Math.pow(2, Math.min(ghostChain - 1, 3)));
+            const gain = 50 * Math.pow(2, Math.min(ghostChain - 1, 3));
+            addScore(gain);
             sfx('explosion');
             shake(0.1, 3);
+            particles.burst(gPos.x, gPos.y, 12, {
+              colors: ['#2a3fd0', '#8ea0ff', '#ffffff'], speedMin: 60, speedMax: 180,
+              lifeMin: 0.25, lifeMax: 0.5, sizeMin: 2, sizeMax: 4, gravity: 0,
+            });
+            floatText.spawn(gPos.x, gPos.y - 10, `+${gain}`, '#8ea0ff', { life: 0.7, vy: -50, size: 13 });
             if (ghostChain >= ghosts.length) {
               // Cleared every ghost on the board during one power pellet —
               // a little extra reward for the perfect combo.
               addScore(100);
               shake(0.2, 6);
+              floatText.spawn(pPos.x, pPos.y - 22, 'PERFECT +100', '#ffd24f', { life: 1.0, vy: -40, size: 13 });
             }
             g.col = g.spawn[0]; g.row = g.spawn[1];
             g.dir = { dx: 0, dy: 0 }; g.t = 0;
             g.respawnDelay = 1.4;
           } else {
+            particles.burst(pPos.x, pPos.y, 14, {
+              colors: ['#ff4fa3', '#ff8a4f', '#ffffff'], speedMin: 60, speedMax: 200,
+              lifeMin: 0.3, lifeMax: 0.6, sizeMin: 2, sizeMax: 4, gravity: 40,
+            });
+            flashTimer = flashMax;
+            shake(0.22, 7);
             loseLife();
             return;
           }
@@ -641,6 +678,15 @@ function createMazeLevel(api) {
       }
 
       if (dots.size === 0 && powerPellets.size === 0) {
+        // Maze-clear celebration: a scattered particle shower across the
+        // board plus a banner, then hand off to the normal win-level flow.
+        for (let i = 0; i < 3; i++) {
+          particles.burst(OX + Math.random() * COLS * CELL, OY + Math.random() * ROWS * CELL, 10, {
+            colors: ['#ffd24f', '#fff5b0', '#4fe3d0', '#ff4fa3'], speedMin: 60, speedMax: 160,
+            lifeMin: 0.4, lifeMax: 0.9, sizeMin: 2, sizeMax: 4, gravity: 80,
+          });
+        }
+        floatText.spawn(W / 2, H / 2, 'MAZE CLEAR!', '#ffd24f', { life: 1.2, vy: -20, size: 20 });
         winLevel(60);
       }
     },
@@ -650,6 +696,7 @@ function createMazeLevel(api) {
       ctx.fillStyle = theme.bg;
       ctx.fillRect(0, 0, W, H);
 
+      const wallGlowColor = FX.shade(theme.wall, 70);
       for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
           if (grid[r][c] === 1) {
@@ -661,6 +708,14 @@ function createMazeLevel(api) {
             ctx.strokeRect(bx + 4.5, by + 4.5, CELL - 9, CELL - 9);
             ctx.fillStyle = 'rgba(0,0,0,0.15)';
             ctx.fillRect(bx + CELL / 2 - 1, by + 3, 2, CELL - 6);
+            // subtle themed glow pulse so the block wall reads as "powered"
+            const pulse = 0.08 + (Math.sin(mouthPhase * 0.7 + (c * 0.5 + r * 0.7)) * 0.5 + 0.5) * 0.09;
+            ctx.save();
+            ctx.globalAlpha = pulse;
+            ctx.strokeStyle = wallGlowColor;
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(bx + 1, by + 1, CELL - 2, CELL - 2);
+            ctx.restore();
           }
         }
       }
@@ -675,16 +730,29 @@ function createMazeLevel(api) {
       powerPellets.forEach((k) => {
         const [c, r] = k.split(',').map(Number);
         const p = cellToPx(c, r);
+        // soft blinking halo behind the pellet to draw the eye
+        ctx.save();
+        ctx.globalAlpha = 0.22 + Math.sin(mouthPhase * 1.5) * 0.14;
+        ctx.fillStyle = '#fff5b0';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, pelletPulse + 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
         FX.sphere(ctx, p.x, p.y, pelletPulse, '#fff5b0');
       });
 
-      ghosts.forEach((g) => {
+      const playerPos = pixelPos(player);
+      ghosts.forEach((g, gi) => {
         if (g.respawnDelay > 0) return;
-        const pos = pixelPos(g);
+        const rawPos = pixelPos(g);
+        // subtle idle bob so ghosts never look perfectly static, even when
+        // stalled against a wall or waiting to turn
+        const bob = Math.sin(mouthPhase * 2 + gi * 1.7) * 1.4;
+        const pos = { x: rawPos.x, y: rawPos.y + bob };
         const frightened = frightTimer > 0;
         const flashing = frightened && frightTimer < 2 && Math.floor(frightTimer * 6) % 2 === 0;
         const ghostColor = flashing ? '#ffffff' : frightened ? '#2a3fd0' : g.color;
-        FX.shadow(ctx, pos.x, pos.y + CELL * 0.4, CELL * 0.35, CELL * 0.12, 0.3);
+        FX.shadow(ctx, rawPos.x, rawPos.y + CELL * 0.4, CELL * 0.35, CELL * 0.12, 0.3);
         const r = CELL * 0.38;
         const baseY = pos.y + CELL * 0.32;
         const ghostGrad = ctx.createLinearGradient(pos.x, pos.y - r, pos.x, baseY);
@@ -725,11 +793,17 @@ function createMazeLevel(api) {
           ctx.arc(pos.x + eyeOffX, pos.y + eyeOffY, 2.6, 0, Math.PI * 2);
           ctx.fill();
           if (!frightened) {
-            const dx = g.dir.dx, dy = g.dir.dy;
+            // pupils mostly track the movement direction, but blend in a
+            // slight lean toward the player's position so idle/stalled
+            // ghosts still read as "watching" rather than dead-eyed
+            const toPX = playerPos.x - pos.x, toPY = playerPos.y - pos.y;
+            const toPLen = Math.hypot(toPX, toPY) || 1;
+            const lookX = g.dir.dx * 0.7 + (toPX / toPLen) * 0.3;
+            const lookY = g.dir.dy * 0.7 + (toPY / toPLen) * 0.3;
             ctx.fillStyle = '#1a1a2a';
             ctx.beginPath();
-            ctx.arc(pos.x - eyeOffX + dx * 1.2, pos.y + eyeOffY + dy * 1.2, 1.3, 0, Math.PI * 2);
-            ctx.arc(pos.x + eyeOffX + dx * 1.2, pos.y + eyeOffY + dy * 1.2, 1.3, 0, Math.PI * 2);
+            ctx.arc(pos.x - eyeOffX + lookX * 1.2, pos.y + eyeOffY + lookY * 1.2, 1.3, 0, Math.PI * 2);
+            ctx.arc(pos.x + eyeOffX + lookX * 1.2, pos.y + eyeOffY + lookY * 1.2, 1.3, 0, Math.PI * 2);
             ctx.fill();
           } else {
             ctx.strokeStyle = '#1a1a2a';
@@ -744,7 +818,6 @@ function createMazeLevel(api) {
         }
       });
 
-      const playerPos = pixelPos(player);
       const mouthOpen = Math.abs(Math.sin(mouthPhase)) * 0.28 + 0.04;
       let angle = 0;
       if (player.dir.dx === 1) angle = 0;
@@ -785,9 +858,18 @@ function createMazeLevel(api) {
       ctx.arc(eyeX - 0.6, eyeY - 0.6, 0.6, 0, Math.PI * 2);
       ctx.fill();
 
+      // juice layer: particle bursts + floating score text drawn on top of
+      // every sprite, before the HUD text and hit-stun flash wash
+      particles.draw(ctx);
+      floatText.draw(ctx);
+
       ctx.fillStyle = '#e8ecff';
       ctx.font = '9px monospace';
       ctx.fillText(`DOTS ${dots.size + powerPellets.size}`, 8, 16);
+
+      if (flashTimer > 0) {
+        FX.flash(ctx, W, H, '#ff2a4a', (flashTimer / flashMax) * 0.4);
+      }
     },
   };
 }

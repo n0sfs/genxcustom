@@ -22,7 +22,30 @@ function createSnakeLevel(api) {
   const ENDLESS_CAP = 2.6;
 
   let snake, dir, nextDir, food, timer, alive, golden, goldenTimer, eatStreak, streakTimer;
-  let walls, wallSet, inset, speedMult, winLength, theme;
+  let walls, wallSet, inset, speedMult, winLength, theme, themeName;
+
+  // Juice/FX state — instantiated once per level instance, reset per stage
+  // in init(). Kept separate from gameplay state above: none of this ever
+  // feeds back into movement, collision, or scoring.
+  const bgParticles = FX.makeParticles(50);   // ambient theme motes (fireflies, embers, rain, circuit pulses...)
+  const fxParticles = FX.makeParticles(60);   // impact bursts (eat sparkle, death explosion)
+  const floatText = FX.makeFloatText(20);     // floating "+N" score popups
+  let flashTimer = 0;                          // hit-stun full-screen flash countdown
+  let growPulses = [];                         // [{x,y,timer,maxTime}] fading rings on freshly grown tail segments
+  let stars = [];                              // fixed starfield points, used by 'night'/'void' themes
+  let ripples = [];                            // [{x,y,timer,maxTime}] expanding rings, used by 'aqua' theme
+  let ambientSpawnTimer = 0;                   // countdown to next theme-ambient particle spawn
+  let animClock = 0;                           // free-running clock driving pulse/glow animation
+
+  // Circuit-board "node" lattice: a sparse grid of points that softly pulse,
+  // giving the whole board a faint digital/PCB glow no matter the theme —
+  // the "Byte Chaser" identity layered under every stage.
+  const gridNodes = [];
+  for (let gx = 0; gx <= COLS; gx += 4) {
+    for (let gy = 0; gy <= ROWS; gy += 4) {
+      gridNodes.push({ x: gx * CELL, y: gy * CELL, phase: Math.random() * Math.PI * 2 });
+    }
+  }
 
   // Cheap per-stage palette swap (background/grid/wall tint only — same
   // draw calls, just different colors) so each hand-built stage reads as a
@@ -334,6 +357,78 @@ function createSnakeLevel(api) {
     ctx.stroke();
   }
 
+  // Spawns one small ambient particle/effect appropriate to the current
+  // stage's theme, then resets the countdown to the next spawn. Purely
+  // decorative background life — never touches gameplay state.
+  function spawnAmbient() {
+    switch (themeName) {
+      case 'meadow': // slow drifting fireflies
+        bgParticles.spawn(Math.random() * W, H + 4, {
+          vx: (Math.random() - 0.5) * 8, vy: -(10 + Math.random() * 14),
+          size: 1.5 + Math.random() * 1.5, color: '#a8ffb8', life: 3 + Math.random() * 2, fade: true, shrink: false,
+        });
+        ambientSpawnTimer = 0.4 + Math.random() * 0.4;
+        break;
+      case 'cavern': // settling dust motes drifting sideways
+        bgParticles.spawn(Math.random() * W, Math.random() * H * 0.7, {
+          vx: 6 + Math.random() * 10, vy: 3 + Math.random() * 5,
+          size: 1.2 + Math.random(), color: '#d9a05c', life: 4 + Math.random() * 2, fade: true, shrink: false,
+        });
+        ambientSpawnTimer = 0.5 + Math.random() * 0.5;
+        break;
+      case 'ember': // sparks rising and arcing off, like embers off a fire
+        bgParticles.spawn(Math.random() * W, H + 4, {
+          vx: (Math.random() - 0.5) * 14, vy: -(24 + Math.random() * 30), gravity: 30,
+          size: 1.5 + Math.random() * 2, color: Math.random() < 0.5 ? '#ff8a4a' : '#ffd27a',
+          life: 1 + Math.random() * 0.8, fade: true, shrink: true,
+        });
+        ambientSpawnTimer = 0.1 + Math.random() * 0.15;
+        break;
+      case 'aqua': // faint expanding ripple rings
+        ripples.push({ x: 24 + Math.random() * (W - 48), y: 24 + Math.random() * (H - 48), timer: 0, maxTime: 1.6 + Math.random() * 0.6 });
+        ambientSpawnTimer = 0.9 + Math.random() * 0.7;
+        break;
+      case 'dusk': // slow floating motes
+        bgParticles.spawn(Math.random() * W, Math.random() * H, {
+          vx: (Math.random() - 0.5) * 10, vy: (Math.random() - 0.5) * 6,
+          size: 1.5 + Math.random() * 2, color: '#e2a8ff', life: 3 + Math.random() * 2, fade: true, shrink: false,
+        });
+        ambientSpawnTimer = 0.4 + Math.random() * 0.4;
+        break;
+      case 'storm': // driving rain streaks
+        bgParticles.spawn(Math.random() * W, -4, {
+          vx: -34 - Math.random() * 10, vy: 220 + Math.random() * 60,
+          size: 1, color: 'rgba(200,215,255,0.65)', life: 1.4, fade: true, shrink: false,
+        });
+        ambientSpawnTimer = 0.03 + Math.random() * 0.04;
+        break;
+      case 'circuit': { // data pulses traveling along the grid lines
+        const alongX = Math.random() < 0.5;
+        if (alongX) {
+          bgParticles.spawn(0, (1 + Math.floor(Math.random() * (ROWS - 2))) * CELL, {
+            vx: 70 + Math.random() * 40, vy: 0, size: 2, color: '#7dffb0', life: 1.8 + Math.random() * 0.6, fade: true, shrink: false,
+          });
+        } else {
+          bgParticles.spawn((1 + Math.floor(Math.random() * (COLS - 2))) * CELL, 0, {
+            vx: 0, vy: 70 + Math.random() * 40, size: 2, color: '#7dffb0', life: 1.8 + Math.random() * 0.6, fade: true, shrink: false,
+          });
+        }
+        ambientSpawnTimer = 0.22 + Math.random() * 0.25;
+        break;
+      }
+      case 'fortress': // drifting dust in the torchlight
+        bgParticles.spawn(Math.random() * W, Math.random() * H, {
+          vx: (Math.random() - 0.5) * 6, vy: (Math.random() - 0.5) * 4,
+          size: 1 + Math.random() * 1.5, color: 'rgba(220,210,180,0.55)', life: 3 + Math.random() * 2, fade: true, shrink: false,
+        });
+        ambientSpawnTimer = 0.5 + Math.random() * 0.5;
+        break;
+      default: // 'night' / 'void' — handled by the static twinkling starfield instead
+        ambientSpawnTimer = 0.5;
+        break;
+    }
+  }
+
   return {
     init(stage = 1) {
       const cfg = stageConfig(stage);
@@ -342,6 +437,7 @@ function createSnakeLevel(api) {
       winLength = cfg.winLength;
       walls = cfg.walls;
       theme = THEMES[cfg.theme];
+      themeName = cfg.theme;
       wallSet = new Set(walls.map((w) => w.x + ',' + w.y));
 
       const startY = Math.floor(ROWS / 2);
@@ -355,9 +451,46 @@ function createSnakeLevel(api) {
       streakTimer = 0;
       timer = 0;
       alive = true;
+
+      bgParticles.clear();
+      fxParticles.clear();
+      floatText.clear();
+      flashTimer = 0;
+      growPulses = [];
+      ripples = [];
+      ambientSpawnTimer = 0.3;
+      animClock = 0;
+      stars = [];
+      const starCount = themeName === 'void' ? 55 : themeName === 'night' ? 35 : 0;
+      for (let i = 0; i < starCount; i++) {
+        stars.push({
+          x: Math.random() * W, y: Math.random() * H, size: 0.8 + Math.random() * 1.2,
+          phase: Math.random() * Math.PI * 2, speed: 0.8 + Math.random() * 1.8,
+        });
+      }
     },
 
     update(dt) {
+      // FX/juice systems tick every frame regardless of alive state, so a
+      // death burst or hit-flash keeps playing out after the snake stops.
+      animClock += dt;
+      bgParticles.update(dt);
+      fxParticles.update(dt);
+      floatText.update(dt);
+      if (flashTimer > 0) flashTimer = Math.max(0, flashTimer - dt);
+      for (let i = growPulses.length - 1; i >= 0; i--) {
+        growPulses[i].timer += dt;
+        if (growPulses[i].timer >= growPulses[i].maxTime) growPulses.splice(i, 1);
+      }
+      for (let i = ripples.length - 1; i >= 0; i--) {
+        ripples[i].timer += dt;
+        if (ripples[i].timer >= ripples[i].maxTime) ripples.splice(i, 1);
+      }
+      if (alive) {
+        ambientSpawnTimer -= dt;
+        if (ambientSpawnTimer <= 0) spawnAmbient();
+      }
+
       if (!alive) return;
 
       if (isDown('ArrowRight', 'd') && dir.x !== -1) nextDir = { x: 1, y: 0 };
@@ -395,6 +528,12 @@ function createSnakeLevel(api) {
           wallSet.has(head.x + ',' + head.y) ||
           body.some((s) => s.x === head.x && s.y === head.y)) {
         alive = false;
+        const hcx = head.x * CELL + CELL / 2, hcy = head.y * CELL + CELL / 2;
+        fxParticles.burst(hcx, hcy, 12, {
+          colors: ['#ff5a3c', '#ffcf4f', '#fff5d8'], speedMin: 60, speedMax: 190,
+          lifeMin: 0.3, lifeMax: 0.65, sizeMin: 2, sizeMax: 4, gravity: 70,
+        });
+        flashTimer = 0.22;
         sfx('hurt');
         shake(0.2, 5);
         loseLife();
@@ -406,8 +545,20 @@ function createSnakeLevel(api) {
         streakTimer = STREAK_WINDOW;
         eatStreak++;
         const streakBonus = Math.min(eatStreak - 1, 8) * 2;
-        addScore((golden ? 20 : 6) + streakBonus);
+        const gain = (golden ? 20 : 6) + streakBonus;
+        addScore(gain);
         sfx('pickup');
+
+        const eatenCx = food.x * CELL + CELL / 2, eatenCy = food.y * CELL + CELL / 2;
+        const eatColor = golden ? '#ffd24f' : '#4fe3ff';
+        fxParticles.burst(eatenCx, eatenCy, 9, {
+          colors: [eatColor, '#ffffff'], speedMin: 30, speedMax: 100,
+          lifeMin: 0.22, lifeMax: 0.45, sizeMin: 1.5, sizeMax: 3, gravity: 30,
+        });
+        floatText.spawn(eatenCx, eatenCy - 6, `+${gain}`, golden ? '#ffd24f' : '#bfffe0', { life: 0.7, vy: -34, size: 12 });
+        const tail = snake[snake.length - 1];
+        growPulses.push({ x: tail.x, y: tail.y, timer: 0, maxTime: 0.35 });
+
         if (eatStreak > 1 && eatStreak % 3 === 0) {
           sfx('jump');
           shake(0.12, 3);
@@ -438,20 +589,66 @@ function createSnakeLevel(api) {
         ctx.beginPath(); ctx.moveTo(0, y * CELL); ctx.lineTo(W, y * CELL); ctx.stroke();
       }
 
+      // Faint pulsing PCB-node lattice under everything else — the
+      // "Byte Chaser" digital-board identity, present in every theme.
+      for (const node of gridNodes) {
+        const a = 0.1 + 0.22 * Math.max(0, Math.sin(animClock * 1.4 + node.phase));
+        ctx.fillStyle = `rgba(120,255,190,${a})`;
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, 1.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Theme-specific ambient life: starfield, ripples, drifting motes —
+      // all drawn as background layer, behind walls/food/snake.
+      if (stars.length) {
+        const starColor = themeName === 'void' ? '190,150,255' : '210,225,255';
+        for (const st of stars) {
+          const a = 0.25 + 0.55 * Math.abs(Math.sin(animClock * st.speed + st.phase));
+          ctx.fillStyle = `rgba(${starColor},${a})`;
+          ctx.fillRect(st.x - st.size / 2, st.y - st.size / 2, st.size, st.size);
+        }
+      }
+      for (const rp of ripples) {
+        const t = rp.timer / rp.maxTime;
+        ctx.strokeStyle = `rgba(120,220,255,${(1 - t) * 0.45})`;
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.arc(rp.x, rp.y, 6 + t * 26, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      bgParticles.draw(ctx);
+
       if (inset > 0) {
         ctx.fillStyle = theme.inset;
         ctx.fillRect(0, 0, W, inset * CELL);
         ctx.fillRect(0, H - inset * CELL, W, inset * CELL);
         ctx.fillRect(0, 0, inset * CELL, H);
         ctx.fillRect(W - inset * CELL, 0, inset * CELL, H);
+        ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(inset * CELL + 0.5, inset * CELL + 0.5, W - 2 * inset * CELL - 1, H - 2 * inset * CELL - 1);
       }
       walls.forEach((wcell) => {
-        FX.bevelBlock(ctx, wcell.x * CELL + 1, wcell.y * CELL + 1, CELL - 2, CELL - 2, theme.wall, 2);
+        const wx = wcell.x * CELL + 1, wy = wcell.y * CELL + 1, wsz = CELL - 2;
+        FX.bevelBlock(ctx, wx, wy, wsz, wsz, theme.wall, 2);
+        ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(wx + 0.5, wy + 0.5, wsz - 1, wsz - 1);
       });
 
+      // Food rendered as a glowing "data bit": pulsing halo, glossy sphere,
+      // and a thin scanline through the middle instead of the old apple stem.
       const fcx = food.x * CELL + CELL / 2, fcy = food.y * CELL + CELL / 2;
-      ctx.fillStyle = '#3a7a2a';
-      ctx.fillRect(fcx - 1, food.y * CELL + 2, 2, 4);
+      const foodPulse = 0.5 + 0.5 * Math.sin(animClock * 6);
+      const foodColor = golden ? '#ffd24f' : '#ff4fa3';
+      ctx.save();
+      ctx.globalAlpha = 0.22 + foodPulse * 0.18;
+      ctx.fillStyle = foodColor;
+      ctx.beginPath();
+      ctx.arc(fcx, fcy, CELL * 0.62 + foodPulse * 1.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
       if (golden) {
         ctx.strokeStyle = `rgba(255, 210, 79, ${Math.max(0.2, goldenTimer / GOLDEN_LIFE)})`;
         ctx.lineWidth = 2;
@@ -459,11 +656,17 @@ function createSnakeLevel(api) {
         ctx.arc(fcx, fcy, CELL / 2, 0, Math.PI * 2 * (goldenTimer / GOLDEN_LIFE));
         ctx.stroke();
       }
-      FX.sphere(ctx, fcx, fcy, CELL / 2 - 3, golden ? '#ffd24f' : '#ff4fa3');
+      FX.sphere(ctx, fcx, fcy, CELL / 2 - 3, foodColor);
       ctx.strokeStyle = 'rgba(0,0,0,0.45)';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.arc(fcx, fcy, CELL / 2 - 3, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = `rgba(255,255,255,${0.25 + foodPulse * 0.25})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(fcx - (CELL / 2 - 4), fcy);
+      ctx.lineTo(fcx + (CELL / 2 - 4), fcy);
       ctx.stroke();
       ctx.fillStyle = 'rgba(255,255,255,0.75)';
       ctx.beginPath();
@@ -477,6 +680,16 @@ function createSnakeLevel(api) {
 
       const head = snake[0];
       const hx = head.x * CELL, hy = head.y * CELL;
+      // Soft pulsing glow behind the head — the "glowing tip" of the
+      // digital construct — drawn before the head segment itself.
+      const headPulse = 0.5 + 0.5 * Math.sin(animClock * 5);
+      ctx.save();
+      ctx.globalAlpha = 0.18 + headPulse * 0.14;
+      ctx.fillStyle = '#8bffb0';
+      ctx.beginPath();
+      ctx.arc(hx + CELL / 2, hy + CELL / 2, CELL * 0.68, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
       drawSegment(ctx, hx + 1, hy + 1, CELL - 2, '#6bff6b', 5);
 
       const eo = 5;
@@ -500,12 +713,31 @@ function createSnakeLevel(api) {
       ctx.arc(ex2 - 0.6, ey2 - 0.6, 0.6, 0, Math.PI * 2);
       ctx.fill();
 
+      // Expanding ring pulse on any freshly grown tail segment.
+      for (const gp of growPulses) {
+        const t = gp.timer / gp.maxTime;
+        const gcx = gp.x * CELL + CELL / 2, gcy = gp.y * CELL + CELL / 2;
+        ctx.strokeStyle = `rgba(191,255,224,${(1 - t) * 0.7})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(gcx, gcy, CELL * (0.32 + t * 0.55), 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      fxParticles.draw(ctx);
+      floatText.draw(ctx);
+      ctx.textAlign = 'left'; // floatText.draw() leaves ctx.textAlign centered
+
       ctx.fillStyle = '#e8ecff';
       ctx.font = '9px monospace';
       ctx.fillText(`LENGTH ${snake.length}/${winLength}`, 8, 16);
       if (eatStreak >= 2) {
         ctx.fillStyle = '#ffd24f';
         ctx.fillText(`STREAK x${eatStreak}`, 8, 28);
+      }
+
+      if (flashTimer > 0) {
+        FX.flash(ctx, W, H, '#ff3c3c', (flashTimer / 0.22) * 0.35);
       }
     },
   };

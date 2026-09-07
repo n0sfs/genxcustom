@@ -56,9 +56,29 @@ function createTetrisLevel(api) {
   };
   const TYPES = Object.keys(SHAPES);
 
-  let board, piece, nextType, bag, fallTimer, fallInterval, linesCleared, particles, combo;
+  let board, piece, nextType, bag, fallTimer, fallInterval, linesCleared, combo;
   let leftPrev, rightPrev, leftHeld, rightHeld, leftRepeat, rightRepeat, rotPrev, dropPrev;
   let baseFallInterval, targetLines, theme;
+
+  // Instance-scoped juice systems - created once, updated/drawn every frame.
+  const particles = FX.makeParticles(90);
+  const floatText = FX.makeFloatText(20);
+
+  // Line-clear sequencing: a piece lock that completes one or more rows
+  // doesn't clear them instantly - the rows flash white for CLEAR_FLASH_DURATION
+  // (clearingRows/clearTimer) while the piece is hidden, then finishClear()
+  // does the actual compaction/scoring and kicks off a brief cascade-drop
+  // animation (cascadeTimer/cascadeBottomRow/cascadeDropPx) for the rows that
+  // just shifted down. None of this changes scoring, fall-speed scaling, or
+  // stage/endless logic - it's purely a deferred-and-animated presentation
+  // of the same clear that used to happen synchronously.
+  const CLEAR_FLASH_DURATION = 0.16;
+  const CASCADE_DURATION = 0.22;
+  const SQUASH_DURATION = 0.16;
+  let clearingRows, clearTimer;
+  let cascadeTimer, cascadeBottomRow, cascadeDropPx;
+  let squashCells, squashTimer;
+  let flashColor, flashAlpha;
 
   // Cheap per-stage palette swap (backdrop/board/grid/garbage tint only —
   // same draw calls, just different colors) so the cabinet reads as a
@@ -207,27 +227,16 @@ function createTetrisLevel(api) {
     return false;
   }
 
-  function burst(x, y, color) {
-    for (let i = 0; i < 6; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const spd = 40 + Math.random() * 120;
-      particles.push({ x, y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, life: 0.35, color });
-    }
-  }
-
-  function clearLines() {
-    board.forEach((row, r) => {
-      if (row.every((c) => c)) {
-        for (let c = 0; c < COLS; c++) burst(BOARD_X + c * CELL + CELL / 2, BOARD_Y + r * CELL + CELL / 2, row[c]);
-      }
+  function topOutBurst() {
+    const cx = BOARD_X + (COLS * CELL) / 2, cy = BOARD_Y + ROWS * CELL * 0.35;
+    particles.burst(cx, cy, 18, {
+      colors: TYPES.map((t) => SHAPES[t].color),
+      speedMin: 70, speedMax: 240, lifeMin: 0.4, lifeMax: 0.85, sizeMin: 3, sizeMax: 6, gravity: 260,
     });
-    const remaining = board.filter((row) => !row.every((c) => c));
-    const cleared = ROWS - remaining.length;
-    if (cleared > 0) {
-      const newRows = Array.from({ length: cleared }, () => new Array(COLS).fill(null));
-      board = [...newRows, ...remaining];
-    }
-    return cleared;
+    floatText.spawn(cx, BOARD_Y + 44, 'TOP OUT!', '#ff5c5c', { life: 1.2, vy: -26, size: 20 });
+    flashColor = '#ff2a2a';
+    flashAlpha = 0.5;
+    shake(0.35, 6);
   }
 
   // Locked board cells: bevel block plus a soft inner shine and a crisp
@@ -246,6 +255,19 @@ function createTetrisLevel(api) {
     ctx.lineWidth = 1;
     FX.roundRectPath(ctx, x + 0.5, y + 0.5, size - 1, size - 1, 3);
     ctx.stroke();
+  }
+
+  // Same locked-cell look, but briefly flattened/widened around its own
+  // center — a cheap "thud" squash for the instant a piece lands.
+  function drawLockedCellSquashed(ctx, x, y, size, color, t) {
+    const squeeze = t * 0.32;
+    const cx = x + size / 2, cy = y + size / 2;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(1 + squeeze * 0.6, 1 - squeeze);
+    ctx.translate(-cx, -cy);
+    drawLockedCell(ctx, x, y, size, color);
+    ctx.restore();
   }
 
   // Active falling piece / preview: brighter multi-stop glossy gradient,
@@ -301,29 +323,93 @@ function createTetrisLevel(api) {
     pieceCells(piece).forEach(([gx, gy]) => {
       if (gy >= 0) board[gy][gx] = SHAPES[piece.type].color;
     });
-    const cleared = clearLines();
-    if (cleared > 0) {
-      const comboBonus = combo > 0 ? combo * 15 : 0;
-      addScore(CLEAR_SCORES[Math.min(cleared, 4)] + comboBonus);
-      combo++;
-      linesCleared += cleared;
-      sfx(cleared >= 4 ? 'levelclear' : 'pickup');
-      if (combo > 1) sfx('bumper');
-      shake(0.1 + cleared * 0.03, 2 + cleared * 1.5);
-      // Smooth, continuous ramp instead of a stepped one every 3 lines —
-      // avoids the flat "nothing changed" stretch between speed bumps.
-      fallInterval = Math.max(MIN_FALL_INTERVAL, baseFallInterval - linesCleared * 0.035);
-      if (linesCleared >= targetLines) {
-        winLevel(50);
-        return;
-      }
+
+    // Brief squash/thud on the cells that just landed.
+    squashCells = pieceCells(piece).filter(([, gy]) => gy >= 0);
+    squashTimer = SQUASH_DURATION;
+
+    const fullRows = [];
+    board.forEach((row, r) => { if (row.every((c) => c)) fullRows.push(r); });
+
+    if (fullRows.length > 0) {
+      // Don't clear/compact yet - let the rows flash for a beat first
+      // (finishClear does the actual scoring + board compaction).
+      const perRow = Math.max(4, Math.round(16 / fullRows.length));
+      fullRows.forEach((r) => {
+        particles.burst(BOARD_X + (COLS * CELL) / 2, BOARD_Y + r * CELL + CELL / 2, perRow, {
+          colors: board[r].filter(Boolean),
+          speedMin: 50, speedMax: 190, lifeMin: 0.3, lifeMax: 0.6, sizeMin: 2, sizeMax: 5, gravity: 220,
+        });
+      });
+      clearingRows = fullRows;
+      clearTimer = CLEAR_FLASH_DURATION;
+      piece = null; // hide the active piece during the flash beat
     } else {
       combo = 0;
       sfx('hit');
+      spawnPiece();
+      if (!canPlace(piece)) {
+        loseLife();
+        topOutBurst();
+      }
+    }
+  }
+
+  // Runs once the flash beat finishes: compacts the board, applies score
+  // (identical formula/values to before), kicks the cascade-drop visual,
+  // then spawns the next piece / checks win-loss exactly as lockPiece used
+  // to do synchronously.
+  function finishClear() {
+    const cleared = clearingRows.length;
+    const remaining = board.filter((row) => !row.every((c) => c));
+    const newRows = Array.from({ length: ROWS - remaining.length }, () => new Array(COLS).fill(null));
+    board = [...newRows, ...remaining];
+
+    const comboBonus = combo > 0 ? combo * 15 : 0;
+    const gained = CLEAR_SCORES[Math.min(cleared, 4)] + comboBonus;
+    addScore(gained);
+    combo++;
+    linesCleared += cleared;
+    sfx(cleared >= 4 ? 'levelclear' : 'pickup');
+    if (combo > 1) sfx('bumper');
+    shake(0.1 + cleared * 0.03, 2 + cleared * 1.5);
+    // Smooth, continuous ramp instead of a stepped one every 3 lines —
+    // avoids the flat "nothing changed" stretch between speed bumps.
+    fallInterval = Math.max(MIN_FALL_INTERVAL, baseFallInterval - linesCleared * 0.035);
+
+    const tx = BOARD_X + (COLS * CELL) / 2;
+    const ty = BOARD_Y + (clearingRows.reduce((a, b) => a + b, 0) / cleared) * CELL + CELL / 2;
+    if (cleared >= 4) {
+      floatText.spawn(tx, ty, 'TETRIS!', '#fff176', { life: 1.15, vy: -46, size: 22 });
+      flashColor = '#ffffff';
+      flashAlpha = 0.5;
+      particles.burst(tx, ty, 14, {
+        colors: ['#ffffff', '#fff176', '#9be7ff'],
+        speedMin: 90, speedMax: 260, lifeMin: 0.4, lifeMax: 0.75, sizeMin: 2, sizeMax: 5, gravity: 200,
+      });
+    } else {
+      floatText.spawn(tx, ty, `+${gained}`, cleared === 3 ? '#ffb84f' : '#9be7ff', { life: 0.8, vy: -38, size: 13 + cleared * 3 });
+      flashColor = '#ffffff';
+      flashAlpha = 0.16 + cleared * 0.05;
+    }
+    if (combo > 1) {
+      floatText.spawn(tx, ty + 16, `COMBO x${combo}`, '#ffd24f', { life: 0.85, vy: -30, size: 12 });
+    }
+
+    cascadeBottomRow = Math.max(...clearingRows);
+    cascadeDropPx = cleared * CELL;
+    cascadeTimer = CASCADE_DURATION;
+    clearingRows = [];
+    clearTimer = 0;
+
+    if (linesCleared >= targetLines) {
+      winLevel(50);
+      return;
     }
     spawnPiece();
     if (!canPlace(piece)) {
       loseLife();
+      topOutBurst();
     }
   }
 
@@ -342,12 +428,36 @@ function createTetrisLevel(api) {
       fallInterval = baseFallInterval;
       linesCleared = 0;
       combo = 0;
-      particles = [];
+      particles.clear();
+      floatText.clear();
+      clearingRows = [];
+      clearTimer = 0;
+      cascadeTimer = 0;
+      cascadeBottomRow = -1;
+      cascadeDropPx = 0;
+      squashCells = [];
+      squashTimer = 0;
+      flashColor = '#ffffff';
+      flashAlpha = 0;
       leftPrev = rightPrev = rotPrev = dropPrev = false;
       leftHeld = rightHeld = leftRepeat = rightRepeat = 0;
     },
 
     update(dt) {
+      particles.update(dt);
+      floatText.update(dt);
+      if (flashAlpha > 0) flashAlpha = Math.max(0, flashAlpha - dt * 2.2);
+      if (squashTimer > 0) squashTimer = Math.max(0, squashTimer - dt);
+      if (cascadeTimer > 0) cascadeTimer = Math.max(0, cascadeTimer - dt);
+
+      // Rows are mid-flash: piece is hidden and frozen, just let the beat
+      // play out; finishClear() (below) is what actually resumes play.
+      if (clearTimer > 0) {
+        clearTimer -= dt;
+        if (clearTimer <= 0) finishClear();
+        return;
+      }
+
       const leftDown = isDown('ArrowLeft', 'a');
       const rightDown = isDown('ArrowRight', 'd');
       const rotateDown = isDown('ArrowUp', 'w');
@@ -384,7 +494,9 @@ function createTetrisLevel(api) {
         addScore(dropped);
         sfx('hop');
         lockPiece();
-        if (linesCleared >= targetLines) return;
+        // A clear may have just hidden the piece (clearTimer > 0) - bail
+        // out before the fall step below touches a now-null piece.
+        if (clearTimer > 0 || linesCleared >= targetLines) return;
       }
 
       fallTimer += dt * (downDown ? 9 : 1);
@@ -394,17 +506,16 @@ function createTetrisLevel(api) {
         if (!fell) lockPiece();
         else if (downDown) addScore(1);
       }
-
-      particles.forEach((p) => { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; });
-      particles = particles.filter((p) => p.life > 0);
     },
 
     draw(ctx) {
       ctx.fillStyle = theme.bg;
       ctx.fillRect(0, 0, W, H);
 
-      ctx.fillStyle = theme.board;
-      ctx.fillRect(BOARD_X, BOARD_Y, COLS * CELL, ROWS * CELL);
+      // Recessed metal/glass cabinet panel housing the play field, instead
+      // of a flat fill — a thin outer chassis bevel around an inset well.
+      FX.bevelRect(ctx, BOARD_X - 4, BOARD_Y - 4, COLS * CELL + 8, ROWS * CELL + 8, '#262a38', 3);
+      FX.insetRect(ctx, BOARD_X, BOARD_Y, COLS * CELL, ROWS * CELL, theme.board, 4);
       for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
           if ((r + c) % 2 === 0) {
@@ -423,42 +534,73 @@ function createTetrisLevel(api) {
 
       for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
-          if (board[r][c]) {
-            drawLockedCell(ctx, BOARD_X + c * CELL + 1, BOARD_Y + r * CELL + 1, CELL - 2, board[r][c]);
+          if (!board[r][c]) continue;
+          let x = BOARD_X + c * CELL + 1;
+          let y = BOARD_Y + r * CELL + 1;
+          // Cascade-drop: rows that just shifted down (everything from the
+          // top through the deepest cleared line) ease in from above.
+          if (cascadeTimer > 0 && r <= cascadeBottomRow) {
+            const t = cascadeTimer / CASCADE_DURATION;
+            y -= cascadeDropPx * t * t;
+          }
+          const squashed = squashTimer > 0 && squashCells.some(([sx, sy]) => sx === c && sy === r);
+          if (squashed) {
+            drawLockedCellSquashed(ctx, x, y, CELL - 2, board[r][c], squashTimer / SQUASH_DURATION);
+          } else {
+            drawLockedCell(ctx, x, y, CELL - 2, board[r][c]);
+          }
+          if (clearingRows.includes(r)) {
+            // Strobing white flash on rows about to clear, fading out as
+            // the beat runs down instead of just vanishing instantly.
+            const flicker = Math.floor(clearTimer * 40) % 2 === 0 ? 0.9 : 0.4;
+            ctx.globalAlpha = flicker * (clearTimer / CLEAR_FLASH_DURATION);
+            ctx.fillStyle = '#ffffff';
+            FX.roundRectPath(ctx, x, y, CELL - 2, CELL - 2, 3);
+            ctx.fill();
+            ctx.globalAlpha = 1;
           }
         }
       }
 
-      let ghost = { ...piece };
-      while (canPlace({ ...ghost, y: ghost.y + 1 })) ghost = { ...ghost, y: ghost.y + 1 };
-      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-      ctx.lineWidth = 2;
-      pieceCells(ghost).forEach(([gx, gy]) => {
-        if (gy >= 0) ctx.strokeRect(BOARD_X + gx * CELL + 2, BOARD_Y + gy * CELL + 2, CELL - 4, CELL - 4);
-      });
+      if (piece) {
+        let ghost = { ...piece };
+        while (canPlace({ ...ghost, y: ghost.y + 1 })) ghost = { ...ghost, y: ghost.y + 1 };
+        const ghostColor = SHAPES[piece.type].color;
+        pieceCells(ghost).forEach(([gx, gy]) => {
+          if (gy < 0) return;
+          const gxp = BOARD_X + gx * CELL + 2, gyp = BOARD_Y + gy * CELL + 2, gs = CELL - 4;
+          ctx.save();
+          ctx.globalAlpha = 0.14;
+          FX.roundRectPath(ctx, gxp, gyp, gs, gs, 3);
+          ctx.fillStyle = ghostColor;
+          ctx.fill();
+          ctx.globalAlpha = 1;
+          ctx.setLineDash([3, 3]);
+          ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+          ctx.lineWidth = 1.5;
+          FX.roundRectPath(ctx, gxp + 0.5, gyp + 0.5, gs - 1, gs - 1, 3);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.restore();
+        });
 
-      pieceCells(piece).forEach(([gx, gy]) => {
-        if (gy >= 0) drawActiveCell(ctx, BOARD_X + gx * CELL + 1, BOARD_Y + gy * CELL + 1, CELL - 2, SHAPES[piece.type].color);
-      });
+        pieceCells(piece).forEach(([gx, gy]) => {
+          if (gy >= 0) drawActiveCell(ctx, BOARD_X + gx * CELL + 1, BOARD_Y + gy * CELL + 1, CELL - 2, SHAPES[piece.type].color);
+        });
+      }
 
-      particles.forEach((p) => {
-        const a = Math.max(0, p.life / 0.35);
-        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 3);
-        g.addColorStop(0, 'rgba(255,255,255,' + a + ')');
-        g.addColorStop(0.4, p.color);
-        g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = g;
-        ctx.globalAlpha = a;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalAlpha = 1;
-      });
+      // Juice layers: particles + floating score text, drawn after all
+      // sprites and before the CRT-style post-processing at the very end.
+      particles.draw(ctx);
+      floatText.draw(ctx);
+      if (flashAlpha > 0) FX.flash(ctx, W, H, flashColor, flashAlpha);
 
       const sideX = BOARD_X + COLS * CELL + 30;
       ctx.fillStyle = '#e8ecff';
       ctx.font = '10px monospace';
       ctx.fillText('NEXT', sideX, 20);
+      // Metal chassis frame around the chrome display glass.
+      FX.bevelRect(ctx, sideX - 4, 26, 108, 78, '#262a38', 3);
       ctx.save();
       FX.roundRectPath(ctx, sideX, 30, 100, 70, 4);
       ctx.clip();
@@ -486,6 +628,9 @@ function createTetrisLevel(api) {
       ctx.fillText('UP ROTATE', sideX, 174);
       ctx.fillText('DOWN SOFT DROP', sideX, 188);
       ctx.fillText('SPACE HARD DROP', sideX, 202);
+
+      FX.scanlines(ctx, W, H, 0.05);
+      FX.vignette(ctx, W, H, 0.3);
     },
   };
 }

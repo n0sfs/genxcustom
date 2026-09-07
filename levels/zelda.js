@@ -552,9 +552,16 @@ function createZeldaLevel(api) {
     void: { floor: ['#160a24', '#08040f'], wall: '#4a1a6a', torch: [220, 140, 255], flameCore: '#ffffff', flameMid: '#c080ff', flameEdge: '#3a0a6a' },
   };
 
-  let player, enemies, projectiles, camX, camY, goal, goalActive, particles, hearts, boss, bossSpawned, torchTime, killStreak, tookDamage;
+  let player, enemies, projectiles, camX, camY, goal, goalActive, hearts, boss, bossSpawned, torchTime, killStreak, tookDamage;
   let walls, BOSS_HP, enemySpeedMul, enemyFireMul, bossChargeNormal, bossChargeEnraged,
-    bossSpreadNormal, bossSpreadEnraged, bossExtraBurst, bossBurstCount, bossShotSpeed, theme;
+    bossSpreadNormal, bossSpreadEnraged, bossExtraBurst, bossBurstCount, bossShotSpeed, theme, themeKey;
+  let flashTimer = 0, flashMax = 0.28, flashColor = '#ff3050', ambientTimer = 0, emberTimer = 0;
+
+  // Shared particle/floating-text FX systems — created once for the whole
+  // level instance (not per-frame, not per-stage) and simply cleared on
+  // every stage init so their internal arrays don't churn the GC.
+  const fxParticles = FX.makeParticles(220);
+  const fxText = FX.makeFloatText(30);
 
   // Fixed decorative wall torches for dungeon atmosphere (purely cosmetic).
   const torches = [
@@ -666,6 +673,51 @@ function createZeldaLevel(api) {
     ));
   }
 
+  // Cheap ambient life: a slow drift/ember/shimmer particle every so often,
+  // flavored per dungeon theme, plus embers rising off the wall torches.
+  // Purely cosmetic — never touches gameplay state.
+  function spawnAmbient(dt) {
+    ambientTimer -= dt;
+    if (ambientTimer <= 0) {
+      ambientTimer = 0.35 + Math.random() * 0.35;
+      const rx = camX + Math.random() * W;
+      if (themeKey === 'ice') {
+        // Frostbound Corridor: fine snow/frost drifting down the screen.
+        fxParticles.spawn(rx, camY - 6, {
+          vx: (Math.random() - 0.5) * 12, vy: 26 + Math.random() * 24,
+          life: 2.2 + Math.random() * 1.4, size: 1.5 + Math.random() * 2,
+          color: '#eaffff', shrink: false, fade: true,
+        });
+      } else if (themeKey === 'ruins') {
+        // Sunken Ruins: faint rising water shimmer/bubbles.
+        const ry = camY + Math.random() * H;
+        fxParticles.spawn(rx, ry, {
+          vx: (Math.random() - 0.5) * 6, vy: -10 - Math.random() * 14,
+          life: 1.4 + Math.random(), size: 1.5 + Math.random() * 1.5,
+          color: '#8cd8d8', shrink: true, fade: true,
+        });
+      } else if (themeKey === 'crimson' || themeKey === 'ember') {
+        // Crimson Sanctum / ember stages: heat haze embers drifting up.
+        fxParticles.spawn(rx, camY + H + 4, {
+          vx: (Math.random() - 0.5) * 8, vy: -34 - Math.random() * 26, gravity: -8,
+          life: 1.1 + Math.random() * 0.8, size: 1.5 + Math.random() * 2,
+          color: '#ff8a3a', shrink: true, fade: true,
+        });
+      }
+    }
+    emberTimer -= dt;
+    if (emberTimer <= 0) {
+      emberTimer = 0.5 + Math.random() * 0.4;
+      const t = torches[Math.floor(Math.random() * torches.length)];
+      const [tr, tg, tb] = theme.torch;
+      fxParticles.spawn(t.x + (Math.random() - 0.5) * 4, t.y - 8, {
+        vx: (Math.random() - 0.5) * 10, vy: -20 - Math.random() * 16, gravity: -10,
+        life: 0.5 + Math.random() * 0.4, size: 1 + Math.random() * 1.5,
+        color: `rgb(${tr},${tg},${tb})`, shrink: true, fade: true,
+      });
+    }
+  }
+
   return {
     init(stage = 1) {
       const cfg = getStageConfig(stage);
@@ -681,6 +733,7 @@ function createZeldaLevel(api) {
       enemySpeedMul = cfg.enemySpeedMul;
       enemyFireMul = cfg.enemyFireMul;
       theme = THEMES[cfg.theme] || THEMES.stone;
+      themeKey = cfg.theme;
 
       player = {
         x: 110, y: ROOM_H / 2 - 13, w: 24, h: 26,
@@ -689,7 +742,8 @@ function createZeldaLevel(api) {
       };
       spawnEnemies(cfg);
       projectiles = [];
-      particles = [];
+      fxParticles.clear();
+      fxText.clear();
       hearts = [];
       goal = { x: ROOM_W + ROOM_W / 2 - 14, y: ROOM_H + ROOM_H / 2 - 14, w: 28, h: 28 };
       goalActive = false;
@@ -699,6 +753,10 @@ function createZeldaLevel(api) {
       torchTime = 0;
       killStreak = 0;
       tookDamage = false;
+      flashTimer = 0;
+      flashMax = 0.28;
+      ambientTimer = 0;
+      emberTimer = 0;
     },
 
     update(dt) {
@@ -725,6 +783,15 @@ function createZeldaLevel(api) {
         player.attackCooldown = ATTACK_COOLDOWN;
         player.hitSet = new Set();
         sfx('swing');
+        // Small blade-glint spark at the swing's leading edge so the swing
+        // itself feels like it's cutting the air, even before it connects.
+        const tipX = player.x + player.w / 2 + player.facing.dx * 22;
+        const tipY = player.y + player.h / 2 + player.facing.dy * 22;
+        fxParticles.burst(tipX, tipY, 5, {
+          colors: ['#ffffff', '#cfe8ff'], speedMin: 40, speedMax: 90,
+          lifeMin: 0.12, lifeMax: 0.22, sizeMin: 1.5, sizeMax: 3,
+          angle: Math.atan2(player.facing.dy, player.facing.dx), spread: 1.1,
+        });
       }
 
       let swordRect = null;
@@ -782,9 +849,12 @@ function createZeldaLevel(api) {
           addScore(15);
           sfx('explosion');
           shake(0.1, 3);
-          for (let i = 0; i < 6; i++) {
-            particles.push({ x: e.x + e.w / 2, y: e.y + e.h / 2, vx: (Math.random() - 0.5) * 160, vy: (Math.random() - 0.5) * 160, life: 0.4 });
-          }
+          const ecx2 = e.x + e.w / 2, ecy2 = e.y + e.h / 2;
+          fxParticles.burst(ecx2, ecy2, 10, {
+            colors: ['#ffe28a', '#ff8fc0', '#fff'], speedMin: 50, speedMax: 170,
+            lifeMin: 0.25, lifeMax: 0.5, sizeMin: 2, sizeMax: 4, gravity: 40,
+          });
+          fxText.spawn(ecx2, ecy2 - 10, '+15', '#ffe28a', { life: 0.7, vy: -36, size: 12 });
           if (Math.random() < HEART_DROP_CHANCE) {
             hearts.push({ x: e.x + e.w / 2 - 8, y: e.y + e.h / 2 - 8, w: 16, h: 16 });
           }
@@ -794,6 +864,7 @@ function createZeldaLevel(api) {
           if (killStreak % 3 === 0) {
             addScore(20);
             sfx('pickup');
+            fxText.spawn(ecx2, ecy2 - 26, '+20 STREAK', '#8cffb0', { life: 0.8, vy: -30, size: 11 });
           }
         }
       });
@@ -824,24 +895,36 @@ function createZeldaLevel(api) {
           boss.hitFlash = 0.3;
           addScore(30);
           sfx('hit');
-          shake(0.1, 3);
+          // Stronger shake than a regular enemy hit — landing a shot on the
+          // boss should read as heavier and more consequential.
+          shake(0.16, 6);
           killStreak++;
+          const bcx2 = boss.x + boss.w / 2, bcy2 = boss.y + boss.h / 2;
+          fxParticles.burst(bcx2, bcy2, 14, {
+            colors: ['#ff4fa3', '#ffd24f', '#fff'], speedMin: 70, speedMax: 210,
+            lifeMin: 0.25, lifeMax: 0.5, sizeMin: 2, sizeMax: 5, gravity: 30,
+          });
+          fxText.spawn(bcx2, bcy2 - 14, '+30', '#ff9fd0', { life: 0.7, vy: -38, size: 13 });
           if (killStreak % 3 === 0) {
             addScore(20);
             sfx('pickup');
-          }
-          for (let i = 0; i < 8; i++) {
-            particles.push({ x: boss.x + boss.w / 2, y: boss.y + boss.h / 2, vx: (Math.random() - 0.5) * 180, vy: (Math.random() - 0.5) * 180, life: 0.4 });
           }
           if (boss.hp <= 0) {
             boss.alive = false;
             goalActive = true;
             addScore(150);
             sfx('explosion');
-            shake(0.2, 5);
-            for (let i = 0; i < 16; i++) {
-              particles.push({ x: boss.x + boss.w / 2, y: boss.y + boss.h / 2, vx: (Math.random() - 0.5) * 260, vy: (Math.random() - 0.5) * 260, life: 0.5 });
-            }
+            // Boss-defeat celebration: the emotional peak of the dungeon gets
+            // the biggest shake, a gold screen flash, and a much bigger,
+            // multi-color particle shower than a regular kill.
+            shake(0.3, 8);
+            flashColor = '#ffe28a';
+            flashTimer = flashMax = 0.35;
+            fxParticles.burst(bcx2, bcy2, 28, {
+              colors: ['#ffe28a', '#ff4fa3', '#fff', '#ffd24f'], speedMin: 80, speedMax: 300,
+              lifeMin: 0.35, lifeMax: 0.75, sizeMin: 2.5, sizeMax: 6, gravity: 50,
+            });
+            fxText.spawn(bcx2, bcy2 - 30, 'BOSS DEFEATED! +150', '#ffe28a', { life: 1.3, vy: -26, size: 14 });
           }
         }
       }
@@ -855,8 +938,10 @@ function createZeldaLevel(api) {
       });
       projectiles = projectiles.filter((p) => !p.dead && p.x > 0 && p.x < WORLD_W && p.y > 0 && p.y < WORLD_H);
 
-      particles.forEach((p) => { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; });
-      particles = particles.filter((p) => p.life > 0);
+      fxParticles.update(dt);
+      fxText.update(dt);
+      flashTimer = Math.max(0, flashTimer - dt);
+      spawnAmbient(dt);
 
       if (player.invuln <= 0 && player.powerTimer <= 0) {
         const touchedEnemy = aliveEnemies.some((e) => rectsOverlap(player, e));
@@ -868,6 +953,13 @@ function createZeldaLevel(api) {
           tookDamage = true;
           killStreak = 0;
           sfx('hurt');
+          shake(0.18, 5);
+          flashColor = '#ff3050';
+          flashTimer = flashMax = 0.28;
+          fxParticles.burst(player.x + player.w / 2, player.y + player.h / 2, 10, {
+            colors: ['#ff5c5c', '#ffb3b3', '#fff'], speedMin: 60, speedMax: 160,
+            lifeMin: 0.2, lifeMax: 0.4, sizeMin: 2, sizeMax: 4, gravity: 20,
+          });
           loseLife();
           return;
         }
@@ -1079,10 +1171,14 @@ function createZeldaLevel(api) {
           ctx.closePath();
           ctx.fill();
         }
+        // Subtle idle breathing/pulsing so the boss reads as alive even when
+        // it isn't mid-attack — a slow radius wobble, not a state change.
+        const breathe = boss.state === 'idle' ? 1 + Math.sin(torchTime * 2.4) * 0.035 : 1;
+        const bw = (boss.w / 2) * breathe, bh = (boss.h / 2) * breathe;
         if (flashing) {
           ctx.fillStyle = '#fff';
           ctx.beginPath();
-          ctx.ellipse(bcx, bcy, boss.w / 2, boss.h / 2, 0, 0, Math.PI * 2);
+          ctx.ellipse(bcx, bcy, bw, bh, 0, 0, Math.PI * 2);
           ctx.fill();
         } else {
           // dramatic pulsing aura + multi-tone body for a final-boss feel
@@ -1091,9 +1187,16 @@ function createZeldaLevel(api) {
           auraGrad.addColorStop(1, `rgba(255,79,163,${0.15 + Math.sin(torchTime * 5) * 0.08})`);
           ctx.fillStyle = auraGrad;
           ctx.beginPath();
-          ctx.arc(bcx, bcy, boss.w * 0.75, 0, Math.PI * 2);
+          ctx.arc(bcx, bcy, boss.w * 0.75 * breathe, 0, Math.PI * 2);
           ctx.fill();
-          FX.sphere(ctx, bcx, bcy, boss.w / 2, '#8a2a5a');
+          FX.sphere(ctx, bcx, bcy, bw, '#8a2a5a');
+          // extra cast rim-shadow along the lower edge, for a heavier,
+          // more grounded silhouette than a flat gradient sphere alone
+          ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(bcx, bcy, bw - 1.5, Math.PI * 0.12, Math.PI * 0.88);
+          ctx.stroke();
           // spiked crown silhouette
           ctx.fillStyle = FX.shade('#8a2a5a', -22);
           [-0.6, -0.2, 0.2, 0.6].forEach((a) => {
@@ -1110,7 +1213,7 @@ function createZeldaLevel(api) {
         ctx.strokeStyle = 'rgba(30,0,15,0.55)';
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.ellipse(bcx, bcy, boss.w / 2, boss.h / 2, 0, 0, Math.PI * 2);
+        ctx.ellipse(bcx, bcy, bw, bh, 0, 0, Math.PI * 2);
         ctx.stroke();
         ctx.fillStyle = '#ffd24f';
         ctx.beginPath();
@@ -1153,10 +1256,8 @@ function createZeldaLevel(api) {
         ctx.fill();
       });
 
-      particles.forEach((p) => {
-        ctx.fillStyle = `rgba(255, 210, 79, ${Math.max(0, p.life / 0.4)})`;
-        ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
-      });
+      fxParticles.draw(ctx);
+      fxText.draw(ctx);
 
       if (player.attackTimer > 0) {
         const reach = 26;
@@ -1171,6 +1272,16 @@ function createZeldaLevel(api) {
         ctx.strokeStyle = 'rgba(255,255,255,0.9)';
         ctx.lineWidth = 1;
         ctx.strokeRect(sx + 4, sy + 4, 20, 20);
+        // A bright glint sweeps across the blade as the swing progresses,
+        // peaking mid-swing, so the sword reads as catching the light.
+        const swingT = 1 - player.attackTimer / ATTACK_DURATION;
+        const glintA = Math.sin(Math.min(1, Math.max(0, swingT)) * Math.PI);
+        ctx.strokeStyle = `rgba(255,255,255,${0.7 * glintA})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(sx + 3, sy + 25 - swingT * 20);
+        ctx.lineTo(sx + 25, sy + 3 + swingT * 4);
+        ctx.stroke();
       }
 
       {
@@ -1190,6 +1301,15 @@ function createZeldaLevel(api) {
         ctx.strokeStyle = 'rgba(20,20,10,0.5)';
         ctx.lineWidth = 1.5;
         ctx.strokeRect(player.x + 0.75, player.y + 9.75, player.w - 1.5, player.h - 10.5);
+        // soft rim-light over the torso for a rounder, less flat-shaded look
+        const rimGrad = ctx.createRadialGradient(
+          player.x + player.w * 0.3, player.y + 14, 2,
+          pcx, player.y + 20, player.w
+        );
+        rimGrad.addColorStop(0, 'rgba(255,255,255,0.22)');
+        rimGrad.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = rimGrad;
+        ctx.fillRect(player.x, player.y + 9, player.w, player.h - 9);
         // tunic highlight streak for a glossier, more lit look
         ctx.fillStyle = 'rgba(255,255,255,0.18)';
         ctx.fillRect(player.x + 2, player.y + 11, 3, player.h - 13);
@@ -1235,6 +1355,12 @@ function createZeldaLevel(api) {
       }
 
       ctx.restore();
+
+      // Full-screen hit-stun / celebration wash (drawn in screen space, after
+      // the camera transform is restored, so it always covers the viewport).
+      if (flashTimer > 0) {
+        FX.flash(ctx, W, H, flashColor, (flashTimer / flashMax) * 0.35);
+      }
 
       const remaining = enemies.filter((e) => e.alive).length;
       ctx.fillStyle = '#e8ecff';

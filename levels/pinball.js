@@ -384,11 +384,19 @@ function createPinballLevel(api) {
     return PLAYFIELD_THEMES[clamp(Math.round(stageNum), 1, 10)];
   }
 
-  let balls, score, comboCount, comboTimer, popups, targets, bumpers, walls;
+  // shared juice systems - created once per level instance (not per-frame),
+  // fed on hits/drains/jackpots, updated+drawn every frame after sprites.
+  const particles = FX.makeParticles(140);
+  const floatText = FX.makeFloatText(24);
+
+  let balls, score, comboCount, comboTimer, targets, bumpers, walls;
   let wallCooldown = 0;
   let plungerCharge = 0;
   let curStage = 1;
   let targetScore = stageTargetScore(1);
+  let timeAccum = 0;
+  let drainFlash = 0;
+  let jackpotFlash = 0;
 
   function targetBounce(b) {
     for (const t of targets) {
@@ -410,7 +418,13 @@ function createPinballLevel(api) {
         addScore(20);
         sfx('hit');
         shake(0.06, 2);
-        popups.push({ x: t.x + t.w / 2, y: t.y - 6, text: '+20', life: 0.7 });
+        const tcx = t.x + t.w / 2, tcy = t.y + t.h / 2;
+        particles.burst(tcx, tcy, 8, {
+          colors: ['#ff9a4f', '#ffd24f', '#ffffff'],
+          speedMin: 50, speedMax: 170, lifeMin: 0.25, lifeMax: 0.5,
+          sizeMin: 1.5, sizeMax: 3.5, gravity: 60,
+        });
+        floatText.spawn(tcx, t.y - 6, '+20', '#ffd24f', { life: 0.7, vy: -42, size: 12 });
         if (targets.every((tt) => !tt.alive)) triggerMultiball(b);
       }
     }
@@ -419,7 +433,13 @@ function createPinballLevel(api) {
   function triggerMultiball(source) {
     sfx('explosion');
     shake(0.15, 4);
-    popups.push({ x: 320, y: 210, text: 'MULTIBALL!', life: 1.3 });
+    jackpotFlash = 0.4;
+    floatText.spawn(320, 210, 'MULTIBALL!', '#ffd24f', { life: 1.3, vy: -18, size: 20 });
+    particles.burst(source.x, source.y, 16, {
+      colors: ['#ffd24f', '#ff4fa3', '#4fe3d0', '#ffffff'],
+      speedMin: 90, speedMax: 260, lifeMin: 0.35, lifeMax: 0.8,
+      sizeMin: 2, sizeMax: 4.5, gravity: 70,
+    });
     for (let i = 0; i < 2; i++) {
       const ang = -Math.PI / 2 + (Math.random() - 0.5) * 1.0;
       balls.push({ x: source.x, y: source.y, vx: Math.cos(ang) * 350, vy: Math.sin(ang) * 350, launched: true });
@@ -472,6 +492,7 @@ function createPinballLevel(api) {
         b.vx = dir.x * speed;
         b.vy = dir.y * speed;
         bp.flash = 0.15;
+        bp.glow = 1;
         if (bp.cooldown <= 0) {
           bp.cooldown = 0.15;
           comboCount = comboTimer > 0 ? comboCount + 1 : 1;
@@ -483,11 +504,17 @@ function createPinballLevel(api) {
           addScore(bonus);
           sfx('bumper');
           shake(0.08, 2.5);
-          popups.push({
-            x: bp.x, y: bp.y - bp.r - 4,
-            text: comboCount > 1 ? `COMBO x${comboCount}  +${bonus}` : `+${bonus}`,
-            life: 0.8,
+          particles.burst(bp.x, bp.y, comboCount > 1 ? 12 : 9, {
+            colors: [bp.color, '#ffffff'],
+            speedMin: 70, speedMax: 210, lifeMin: 0.2, lifeMax: 0.45,
+            sizeMin: 1.5, sizeMax: 3.5, gravity: 50,
           });
+          floatText.spawn(
+            bp.x, bp.y - bp.r - 6,
+            comboCount > 1 ? `COMBO x${comboCount}  +${bonus}` : `+${bonus}`,
+            comboCount > 1 ? '#ff9a4f' : '#ffd24f',
+            { life: 0.8, vy: -45, size: comboCount > 1 ? 13 : 12 }
+          );
         }
       }
     });
@@ -536,6 +563,25 @@ function createPinballLevel(api) {
   function drawBumper(ctx, bp) {
     FX.shadow(ctx, bp.x, bp.y + bp.r * 0.7, bp.r * 0.9, bp.r * 0.3, 0.3);
 
+    // lingering hit-glow halo, separate from the instant white flash below -
+    // decays over ~0.5s so a hit bumper keeps "breathing" light after impact
+    if (bp.glow > 0) {
+      ctx.save();
+      ctx.globalAlpha = bp.glow * 0.55;
+      const glowR = bp.r * (1.3 + (1 - bp.glow) * 1.1);
+      const glowGrad = ctx.createRadialGradient(bp.x, bp.y, bp.r * 0.7, bp.x, bp.y, glowR);
+      glowGrad.addColorStop(0, bp.color);
+      glowGrad.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = glowGrad;
+      ctx.beginPath();
+      ctx.arc(bp.x, bp.y, glowR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // idle breathing pulse so bumpers never look fully dead between hits
+    const idlePulse = 0.5 + 0.5 * Math.sin(timeAccum * 2.2 + bp.x * 0.05 + bp.y * 0.05);
+
     // metallic base rim
     const rim = ctx.createRadialGradient(bp.x, bp.y, bp.r * 0.75, bp.x, bp.y, bp.r * 1.2);
     rim.addColorStop(0, 'rgba(255,255,255,0.1)');
@@ -547,6 +593,16 @@ function createPinballLevel(api) {
     ctx.fill();
 
     FX.sphere(ctx, bp.x, bp.y, bp.r, bp.flash > 0 ? '#ffffff' : bp.color);
+
+    // faint idle sheen ring riding the breathing pulse
+    ctx.save();
+    ctx.globalAlpha = 0.15 + idlePulse * 0.2;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(bp.x, bp.y, bp.r * 0.85, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
 
     ctx.strokeStyle = 'rgba(0,0,0,0.5)';
     ctx.lineWidth = 1.5;
@@ -609,11 +665,47 @@ function createPinballLevel(api) {
   }
 
   function drawBall(ctx, ball) {
-    FX.sphere(ctx, ball.x, ball.y, BALL_R, '#ffd24f');
+    // subtle motion trail - fading ghost circles along the ball's recent path
+    if (ball.trail && ball.trail.length) {
+      for (let i = ball.trail.length - 1; i >= 0; i--) {
+        const tp = ball.trail[i];
+        const fade = 1 - (i + 1) / (ball.trail.length + 1);
+        ctx.globalAlpha = fade * 0.3;
+        ctx.fillStyle = '#b8bed4';
+        ctx.beginPath();
+        ctx.arc(tp.x, tp.y, BALL_R * (0.5 + fade * 0.4), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
 
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    FX.shadow(ctx, ball.x, ball.y + BALL_R * 0.6, BALL_R * 0.9, BALL_R * 0.3, 0.25);
+
+    // genuinely chrome body: cool-steel base sphere plus a clipped vertical
+    // reflection band, like a real ball bearing catching the overhead lights
+    FX.sphere(ctx, ball.x, ball.y, BALL_R, '#c6cbdc');
+
+    ctx.save();
     ctx.beginPath();
-    ctx.ellipse(ball.x - BALL_R * 0.35, ball.y - BALL_R * 0.4, BALL_R * 0.32, BALL_R * 0.2, -0.6, 0, Math.PI * 2);
+    ctx.arc(ball.x, ball.y, BALL_R, 0, Math.PI * 2);
+    ctx.clip();
+    const refl = ctx.createLinearGradient(ball.x, ball.y - BALL_R, ball.x, ball.y + BALL_R);
+    refl.addColorStop(0, 'rgba(255,255,255,0.75)');
+    refl.addColorStop(0.35, 'rgba(255,255,255,0.05)');
+    refl.addColorStop(0.55, 'rgba(0,0,0,0.15)');
+    refl.addColorStop(1, 'rgba(255,255,255,0.2)');
+    ctx.fillStyle = refl;
+    ctx.fillRect(ball.x - BALL_R, ball.y - BALL_R, BALL_R * 2, BALL_R * 2);
+    ctx.restore();
+
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.beginPath();
+    ctx.ellipse(ball.x - BALL_R * 0.35, ball.y - BALL_R * 0.4, BALL_R * 0.3, BALL_R * 0.18, -0.6, 0, Math.PI * 2);
+    ctx.fill();
+    // tiny sharp specular pinpoint for that ball-bearing glint
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    ctx.beginPath();
+    ctx.arc(ball.x - BALL_R * 0.4, ball.y - BALL_R * 0.45, BALL_R * 0.1, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.strokeStyle = 'rgba(0,0,0,0.5)';
@@ -647,8 +739,18 @@ function createPinballLevel(api) {
         b.vy += flip.dir.x * kick * 0.4 + ny * kick * 0.6;
         sfx('swing');
         shake(0.06, 2);
+        particles.burst(cx, cy, 10, {
+          colors: ['#ffffff', '#c4c9e4', '#ffd24f'],
+          speedMin: 80, speedMax: 260, lifeMin: 0.15, lifeMax: 0.35,
+          sizeMin: 1, sizeMax: 3, angle: Math.atan2(ny, nx), spread: 1.3, gravity: 40,
+        });
       } else {
         sfx('bounce');
+        particles.burst(cx, cy, 5, {
+          colors: ['#ffffff', '#c4c9e4'],
+          speedMin: 40, speedMax: 130, lifeMin: 0.12, lifeMax: 0.25,
+          sizeMin: 1, sizeMax: 2.5, angle: Math.atan2(ny, nx), spread: 1.0, gravity: 30,
+        });
       }
     }
   }
@@ -658,19 +760,24 @@ function createPinballLevel(api) {
       curStage = stage;
       targetScore = stageTargetScore(curStage);
       const layout = layoutForStage(curStage);
-      bumpers = layout.bumpers.map((bp) => ({ ...bp, cooldown: 0, flash: 0 }));
+      bumpers = layout.bumpers.map((bp) => ({ ...bp, cooldown: 0, flash: 0, glow: 0 }));
       targets = layout.targets.map((t) => ({ ...t, alive: true }));
       walls = BASE_WALLS.concat(extraWallsForStage(curStage));
 
-      balls = [{ x: START_POS.x, y: START_POS.y, vx: 0, vy: 0, launched: false }];
+      balls = [{ x: START_POS.x, y: START_POS.y, vx: 0, vy: 0, launched: false, trail: [] }];
       flippers.left.raise = 0;
       flippers.right.raise = 0;
       score = 0;
       comboCount = 0;
       comboTimer = 0;
-      popups = [];
       wallCooldown = 0;
       plungerCharge = 0;
+      timeAccum = 0;
+      drainFlash = 0;
+      jackpotFlash = 0;
+      // stage/retry never carries over stray particles or floating text from before
+      particles.clear();
+      floatText.clear();
     },
 
     update(dt) {
@@ -680,10 +787,16 @@ function createPinballLevel(api) {
 
       flipperState(flippers.left, 'ArrowLeft', dt);
       flipperState(flippers.right, 'ArrowRight', dt);
-      bumpers.forEach((bp) => { bp.flash = Math.max(0, (bp.flash || 0) - dt); });
+      bumpers.forEach((bp) => {
+        bp.flash = Math.max(0, (bp.flash || 0) - dt);
+        bp.glow = Math.max(0, (bp.glow || 0) - dt / 0.5);
+      });
       comboTimer = Math.max(0, comboTimer - dt);
-      popups.forEach((p) => { p.y -= 25 * dt; p.life -= dt; });
-      popups = popups.filter((p) => p.life > 0);
+      timeAccum += dt;
+      drainFlash = Math.max(0, drainFlash - dt);
+      jackpotFlash = Math.max(0, jackpotFlash - dt);
+      particles.update(dt);
+      floatText.update(dt);
 
       balls.forEach((ball) => {
         if (!ball.launched) {
@@ -712,6 +825,11 @@ function createPinballLevel(api) {
         ball.x += ball.vx * dt;
         ball.y += ball.vy * dt;
 
+        // short motion trail - drawn oldest-first, most-recent last
+        if (!ball.trail) ball.trail = [];
+        ball.trail.unshift({ x: ball.x, y: ball.y });
+        if (ball.trail.length > 6) ball.trail.length = 6;
+
         circleRectBounce(ball, dt);
         bumperBounce(ball, dt);
         targetBounce(ball);
@@ -737,6 +855,21 @@ function createPinballLevel(api) {
         }
       });
 
+      // drain juice: burst + flash + shake for any ball that just fell off
+      // the bottom of the table, before it's removed from play
+      balls.forEach((ball) => {
+        if (ball.launched && ball.y - BALL_R >= H) {
+          particles.burst(ball.x, H - 6, 12, {
+            colors: ['#ff5a4f', '#ff9a4f', '#ffffff'],
+            speedMin: 70, speedMax: 220, lifeMin: 0.3, lifeMax: 0.6,
+            sizeMin: 2, sizeMax: 4, angle: -Math.PI / 2, spread: 1.6, gravity: 220,
+          });
+          floatText.spawn(ball.x, H - 30, 'DRAIN', '#ff5a4f', { life: 0.8, vy: -30, size: 13 });
+          shake(0.2, 5);
+          drainFlash = 0.25;
+        }
+      });
+
       balls = balls.filter((ball) => !ball.launched || ball.y - BALL_R < H);
 
       if (balls.length === 0) {
@@ -751,8 +884,23 @@ function createPinballLevel(api) {
     },
 
     draw(ctx) {
-      ctx.fillStyle = '#0a0a14';
+      // wood-grain cabinet apron surrounding the steel playfield - the wide
+      // wooden cabinet edge of a real late-80s table peeking out around the glass
+      const woodGrad = ctx.createLinearGradient(0, 0, W, H);
+      woodGrad.addColorStop(0, '#3a2318');
+      woodGrad.addColorStop(0.5, '#4f3120');
+      woodGrad.addColorStop(1, '#331e14');
+      ctx.fillStyle = woodGrad;
       ctx.fillRect(0, 0, W, H);
+      ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 14; i++) {
+        const gy = 6 + i * 34 + Math.sin(i * 1.7) * 6;
+        ctx.beginPath();
+        ctx.moveTo(0, gy);
+        ctx.bezierCurveTo(W * 0.3, gy + 10, W * 0.7, gy - 10, W, gy);
+        ctx.stroke();
+      }
 
       const [feltTop, feltBottom] = playfieldTheme(curStage);
       FX.gradientRect(ctx, 20, 8, 600, 462, feltTop, feltBottom);
@@ -768,9 +916,33 @@ function createPinballLevel(api) {
         ctx.stroke();
       }
 
+      // chrome bezel framing the playfield, like the metal trim on a real cabinet
+      ctx.strokeStyle = 'rgba(230,235,250,0.5)';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(20, 8, 600, 462);
+      ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(20, 8, 600, 462);
+
       walls.forEach((w) => {
         drawWall(ctx, w);
       });
+
+      // decorative marquee chase lights riding the top rail - pure ambience,
+      // not part of the walls[] collision set
+      {
+        const count = 14, x0 = 34, x1 = 606, ly = 6;
+        for (let i = 0; i < count; i++) {
+          const lx = x0 + ((x1 - x0) * i) / (count - 1);
+          const b = 0.35 + 0.65 * Math.max(0, Math.sin(timeAccum * 3 - i * 0.55));
+          ctx.fillStyle = i % 2 === 0 ? '#ffd24f' : '#ff9a4f';
+          ctx.globalAlpha = b;
+          ctx.beginPath();
+          ctx.arc(lx, ly, 2.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      }
 
       bumpers.forEach((bp) => {
         drawBumper(ctx, bp);
@@ -780,14 +952,16 @@ function createPinballLevel(api) {
         drawFlipper(ctx, f);
       });
 
-      targets.forEach((t) => {
+      targets.forEach((t, ti) => {
         if (t.alive) {
           FX.bevelBlock(ctx, t.x, t.y, t.w, t.h, '#ff9a4f', 2);
           ctx.save();
           FX.roundRectPath(ctx, t.x, t.y, t.w, t.h, 2);
           ctx.clip();
+          // idle pulse so live targets read as "armed" rather than static art
+          const pulse = 0.35 + 0.15 * Math.sin(timeAccum * 3 + ti);
           const g = ctx.createLinearGradient(t.x, t.y, t.x, t.y + t.h);
-          g.addColorStop(0, 'rgba(255,255,255,0.45)');
+          g.addColorStop(0, `rgba(255,255,255,${pulse})`);
           g.addColorStop(0.5, 'rgba(255,255,255,0.05)');
           g.addColorStop(1, 'rgba(0,0,0,0.2)');
           ctx.fillStyle = g;
@@ -820,15 +994,14 @@ function createPinballLevel(api) {
         drawBall(ctx, ball);
       });
 
-      ctx.font = '10px monospace';
-      ctx.textAlign = 'center';
-      popups.forEach((p) => {
-        ctx.fillStyle = '#ffd24f';
-        ctx.globalAlpha = Math.max(0, p.life / 0.8);
-        ctx.fillText(p.text, p.x, p.y);
-        ctx.globalAlpha = 1;
-      });
+      // juice systems draw after all sprites, before HUD/post-process
+      particles.draw(ctx);
+      floatText.draw(ctx);
       ctx.textAlign = 'left';
+
+      // hit-stun screen washes: red for a drain, gold for a multiball jackpot
+      if (drainFlash > 0) FX.flash(ctx, W, H, '#ff2a2a', (drainFlash / 0.25) * 0.35);
+      if (jackpotFlash > 0) FX.flash(ctx, W, H, '#ffe08a', (jackpotFlash / 0.4) * 0.4);
 
       ctx.fillStyle = '#e8ecff';
       ctx.font = '10px monospace';
@@ -842,6 +1015,10 @@ function createPinballLevel(api) {
         ctx.font = '9px monospace';
         ctx.fillText(`COMBO x${comboCount}`, 24, 54);
       }
+
+      // CRT cabinet finish - kept subtle so it never fights HUD legibility
+      FX.scanlines(ctx, W, H, 0.04);
+      FX.vignette(ctx, W, H, 0.22);
     },
   };
 }

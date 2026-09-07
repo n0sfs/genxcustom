@@ -369,30 +369,221 @@ function createFroggerLevel(api) {
   }
 
   let TIME_LIMIT = 25;
-  let frog, prevKeys, hopTimer, roads, rivers, goalsFilled, bestRow, timeLeft, fly, flyTimer, flyLife, waterTime, speedMul, nearMissTimer, hasHazardLane, theme;
+  let frog, prevKeys, hopTimer, roads, rivers, goalsFilled, bestRow, timeLeft, fly, flyTimer, flyLife, waterTime, speedMul, nearMissTimer, hasHazardLane, theme, themeName;
 
-  function drawFrog(ctx, f) {
-    const cx = f.x + f.w / 2, cy = f.y + f.h / 2;
-    FX.shadow(ctx, cx, f.y + f.h + 2, f.w / 2, 3, 0.25);
+  // Hop squash/stretch animation state (visual only — logical frog.x/y already
+  // update instantly on hop for collision purposes; this just interpolates how
+  // the sprite is *drawn* across the hop-cooldown window).
+  let hopAnim = null;
+
+  // Hit-stun full-screen color wash (impact juice for road/river deaths).
+  let flashTimer = 0, flashDur = 1, flashColor = '#fff';
+
+  // Particle/floating-text systems: created once per level instance and never
+  // cleared on init() (init() runs synchronously inside loseLife() to reset
+  // the frog on life loss, so clearing here would erase a burst before it
+  // ever gets a chance to render — they simply fade out on their own instead).
+  const particles = FX.makeParticles(90);
+  const floatTexts = FX.makeFloatText(24);
+
+  // Stage-theme ambient dressing (rain, snow, embers, stars, aurora, etc).
+  const NIGHT_THEMES = new Set(['night', 'storm', 'neon', 'aurora', 'eclipse', 'inferno']);
+  const SKY_H = GOAL_ROW * CELL + CELL;
+  let ambient = [], lightningTimer = 0, lightningAlpha = 0;
+
+  function initAmbient(name) {
+    ambient = [];
+    lightningTimer = 2 + Math.random() * 3;
+    lightningAlpha = 0;
+    const R = Math.random;
+    if (name === 'storm') {
+      for (let i = 0; i < 24; i++) ambient.push({ x: R() * (W + 60), y: R() * H, len: 10 + R() * 12, speed: 360 + R() * 180 });
+    } else if (name === 'blizzard') {
+      for (let i = 0; i < 26; i++) ambient.push({ x: R() * W, y: R() * H, r: 1 + R() * 2, speed: 28 + R() * 36, sway: R() * Math.PI * 2, swaySpeed: 1 + R() });
+    } else if (name === 'inferno') {
+      for (let i = 0; i < 16; i++) ambient.push({ x: R() * W, y: H + R() * 40, r: 1.4 + R() * 2, speed: 22 + R() * 28, sway: R() * Math.PI * 2, resetY: H + 20 });
+    } else if (name === 'neon') {
+      for (let i = 0; i < 14; i++) ambient.push({ x: R() * W, y: R() * SKY_H * 0.9, r: 1.4 + R() * 2.2, phase: R() * Math.PI * 2, color: R() < 0.5 ? '#5ff0ff' : '#ff5fd0' });
+    } else if (name === 'night' || name === 'dusk' || name === 'eclipse') {
+      for (let i = 0; i < 26; i++) ambient.push({ x: R() * W, y: R() * SKY_H * 0.85, phase: R() * Math.PI * 2, r: R() < 0.18 ? 1.5 : 0.8 });
+    } else if (name === 'dawn') {
+      for (let i = 0; i < 12; i++) ambient.push({ x: R() * W, y: SKY_H * 0.3 + R() * SKY_H * 0.6, r: 1.4 + R() * 1.8, speed: 6 + R() * 8, phase: R() * Math.PI * 2 });
+    } else if (name === 'aurora') {
+      for (let i = 0; i < 10; i++) ambient.push({ x: R() * W, y: R() * SKY_H * 0.8, phase: R() * Math.PI * 2, r: 1, speed: 1 });
+    } else {
+      for (let i = 0; i < 3; i++) ambient.push({ x: R() * W, y: 8 + R() * (SKY_H - 24), w: 46 + R() * 40, speed: 5 + R() * 6 });
+    }
+  }
+
+  function updateAmbient(dt) {
+    if (themeName === 'storm') {
+      lightningTimer -= dt;
+      if (lightningTimer <= 0) { lightningAlpha = 0.3; lightningTimer = 3.5 + Math.random() * 4; }
+      lightningAlpha = Math.max(0, lightningAlpha - dt * 1.4);
+      for (const p of ambient) {
+        p.y += p.speed * dt; p.x -= p.speed * 0.28 * dt;
+        if (p.y > H) { p.y = -20; p.x = Math.random() * (W + 60); }
+      }
+    } else if (themeName === 'blizzard') {
+      for (const p of ambient) {
+        p.sway += p.swaySpeed * dt;
+        p.y += p.speed * dt;
+        p.x += Math.sin(p.sway) * 14 * dt;
+        if (p.y > H) { p.y = -6; p.x = Math.random() * W; }
+      }
+    } else if (themeName === 'inferno') {
+      for (const p of ambient) {
+        p.sway += dt;
+        p.y -= p.speed * dt;
+        p.x += Math.sin(p.sway * 1.4) * 10 * dt;
+        if (p.y < -10) { p.y = p.resetY; p.x = Math.random() * W; }
+      }
+    } else if (themeName === 'dawn') {
+      for (const p of ambient) {
+        p.phase += dt;
+        p.y -= p.speed * dt;
+        if (p.y < SKY_H * 0.2) p.y = SKY_H * 0.9;
+      }
+    } else if (themeName === 'aurora' || themeName === 'neon' || themeName === 'night' || themeName === 'dusk' || themeName === 'eclipse') {
+      for (const p of ambient) p.phase += dt;
+    } else {
+      for (const p of ambient) {
+        p.x += p.speed * dt;
+        if (p.x - p.w > W) p.x = -p.w;
+      }
+    }
+  }
+
+  function drawAmbientBG(ctx) {
+    if (themeName === 'night' || themeName === 'dusk' || themeName === 'eclipse') {
+      for (const p of ambient) {
+        const a = 0.35 + 0.45 * Math.max(0, Math.sin(p.phase * 2.2));
+        ctx.fillStyle = themeName === 'eclipse' ? `rgba(255,150,120,${(a * 0.8).toFixed(3)})` : `rgba(255,255,255,${a.toFixed(3)})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (themeName === 'eclipse') {
+        const glow = 0.22 + 0.08 * Math.sin(waterTime * 2.4);
+        const cGrad = ctx.createRadialGradient(W / 2, 6, 2, W / 2, 6, SKY_H * 1.3);
+        cGrad.addColorStop(0, `rgba(255,90,60,${glow.toFixed(3)})`);
+        cGrad.addColorStop(1, 'rgba(255,90,60,0)');
+        ctx.fillStyle = cGrad;
+        ctx.fillRect(0, 0, W, SKY_H);
+      }
+    } else if (themeName === 'neon') {
+      for (const p of ambient) {
+        const a = Math.max(0.15, 0.4 + 0.4 * Math.sin(p.phase * 2.5));
+        ctx.globalAlpha = a;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    } else if (themeName === 'aurora') {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const colors = ['rgba(80,255,170,0.14)', 'rgba(90,160,255,0.12)', 'rgba(190,110,255,0.1)'];
+      for (let b = 0; b < 3; b++) {
+        ctx.strokeStyle = colors[b];
+        ctx.lineWidth = 8;
+        ctx.beginPath();
+        for (let x = 0; x <= W; x += 8) {
+          const y = SKY_H * (0.25 + b * 0.2) + Math.sin(x * 0.02 + waterTime * (0.6 + b * 0.3) + b) * 10;
+          if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+      ctx.restore();
+      for (const p of ambient) {
+        const a = Math.max(0.1, 0.3 + 0.3 * Math.sin(p.phase * 2));
+        ctx.fillStyle = `rgba(255,255,255,${a.toFixed(3)})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (themeName === 'dawn') {
+      for (const p of ambient) {
+        const a = Math.max(0.12, 0.3 + 0.3 * Math.sin(p.phase * 1.5));
+        ctx.fillStyle = `rgba(255,214,150,${a.toFixed(3)})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (themeName === 'day') {
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      for (const p of ambient) {
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y, p.w / 2, p.w / 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  function drawAmbientFG(ctx) {
+    if (themeName === 'storm') {
+      ctx.strokeStyle = 'rgba(200,220,255,0.35)';
+      ctx.lineWidth = 1;
+      for (const p of ambient) {
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(p.x - 4, p.y + p.len);
+        ctx.stroke();
+      }
+      if (lightningAlpha > 0) FX.flash(ctx, W, H, '#dfe8ff', lightningAlpha);
+    } else if (themeName === 'blizzard') {
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      for (const p of ambient) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (themeName === 'inferno') {
+      for (const p of ambient) {
+        const flick = 0.5 + 0.5 * Math.sin(p.sway * 3);
+        ctx.fillStyle = `rgba(255,${120 + Math.floor(60 * flick)},60,${(0.35 + 0.3 * flick).toFixed(3)})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  function drawFrog(ctx, f, opts = {}) {
+    const scaleX = opts.scaleX ?? 1, scaleY = opts.scaleY ?? 1, lift = opts.lift ?? 0;
+    // Ground shadow stays anchored to the true landing spot and shrinks a
+    // touch as the frog arcs higher, mid-air.
+    const groundCx = f.x + f.w / 2, groundY = f.y + f.h + 2;
+    const shadowShrink = Math.max(0.4, 1 - lift / 24);
+    FX.shadow(ctx, groundCx, groundY, (f.w / 2) * shadowShrink, 3 * shadowShrink, 0.25 * shadowShrink);
+
+    const vf = { x: f.x, y: f.y - lift, w: f.w, h: f.h };
+    const cx = vf.x + vf.w / 2, cy = vf.y + vf.h / 2;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(scaleX, scaleY);
+    ctx.translate(-cx, -cy);
+
     ctx.fillStyle = '#2a6a2a';
     ctx.beginPath();
-    ctx.ellipse(f.x + 3, f.y + f.h - 3, 4, 3, 0, 0, Math.PI * 2);
-    ctx.ellipse(f.x + f.w - 3, f.y + f.h - 3, 4, 3, 0, 0, Math.PI * 2);
+    ctx.ellipse(vf.x + 3, vf.y + vf.h - 3, 4, 3, 0, 0, Math.PI * 2);
+    ctx.ellipse(vf.x + vf.w - 3, vf.y + vf.h - 3, 4, 3, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.strokeStyle = 'rgba(10,30,10,0.5)';
     ctx.lineWidth = 1;
     ctx.stroke();
     ctx.fillStyle = '#3aa33a';
     ctx.beginPath();
-    ctx.ellipse(cx, cy + 2, f.w / 2, f.h / 2 - 1, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, cy + 2, vf.w / 2, vf.h / 2 - 1, 0, 0, Math.PI * 2);
     ctx.fill();
-    const frogGrad = ctx.createRadialGradient(cx - 4, cy - 4, 2, cx, cy, f.w / 2);
+    const frogGrad = ctx.createRadialGradient(cx - 4, cy - 4, 2, cx, cy, vf.w / 2);
     frogGrad.addColorStop(0, FX.shade('#5fd45f', 30));
     frogGrad.addColorStop(0.7, '#5fd45f');
     frogGrad.addColorStop(1, FX.shade('#5fd45f', -18));
     ctx.fillStyle = frogGrad;
     ctx.beginPath();
-    ctx.ellipse(cx, cy, f.w / 2 - 1, f.h / 2 - 3, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, cy, vf.w / 2 - 1, vf.h / 2 - 3, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.strokeStyle = 'rgba(10,30,10,0.55)';
     ctx.lineWidth = 1.5;
@@ -400,38 +591,64 @@ function createFroggerLevel(api) {
     // pale belly highlight patch for extra roundness
     ctx.fillStyle = 'rgba(210,255,190,0.35)';
     ctx.beginPath();
-    ctx.ellipse(cx, cy + 5, f.w / 2 - 6, f.h / 2 - 8, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, cy + 5, vf.w / 2 - 6, vf.h / 2 - 8, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#5fd45f';
     ctx.beginPath();
-    ctx.arc(cx - 6, f.y + 4, 4, 0, Math.PI * 2);
-    ctx.arc(cx + 6, f.y + 4, 4, 0, Math.PI * 2);
+    ctx.arc(cx - 6, vf.y + 4, 4, 0, Math.PI * 2);
+    ctx.arc(cx + 6, vf.y + 4, 4, 0, Math.PI * 2);
     ctx.fill();
     ctx.strokeStyle = 'rgba(10,30,10,0.5)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.arc(cx - 6, f.y + 4, 4, 0, Math.PI * 2);
-    ctx.arc(cx + 6, f.y + 4, 4, 0, Math.PI * 2);
+    ctx.arc(cx - 6, vf.y + 4, 4, 0, Math.PI * 2);
+    ctx.arc(cx + 6, vf.y + 4, 4, 0, Math.PI * 2);
     ctx.stroke();
     ctx.fillStyle = '#0f2a0f';
     ctx.beginPath();
-    ctx.arc(cx - 6, f.y + 4, 1.6, 0, Math.PI * 2);
-    ctx.arc(cx + 6, f.y + 4, 1.6, 0, Math.PI * 2);
+    ctx.arc(cx - 6, vf.y + 4, 1.6, 0, Math.PI * 2);
+    ctx.arc(cx + 6, vf.y + 4, 1.6, 0, Math.PI * 2);
     ctx.fill();
     // eye-shine specular glint
     ctx.fillStyle = 'rgba(255,255,255,0.85)';
     ctx.beginPath();
-    ctx.arc(cx - 7, f.y + 2.5, 0.9, 0, Math.PI * 2);
-    ctx.arc(cx + 5, f.y + 2.5, 0.9, 0, Math.PI * 2);
+    ctx.arc(cx - 7, vf.y + 2.5, 0.9, 0, Math.PI * 2);
+    ctx.arc(cx + 5, vf.y + 2.5, 0.9, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
   }
 
-  function drawCar(ctx, c, dir) {
+  function drawCar(ctx, c, dir, glow) {
+    if (glow) {
+      const gx = dir >= 0 ? c.x + c.w - 1 : c.x + 1;
+      const glowGrad = ctx.createRadialGradient(gx, c.y + c.h / 2, 0, gx, c.y + c.h / 2, 24);
+      glowGrad.addColorStop(0, 'rgba(255,244,190,0.5)');
+      glowGrad.addColorStop(1, 'rgba(255,244,190,0)');
+      ctx.fillStyle = glowGrad;
+      ctx.beginPath();
+      ctx.arc(gx, c.y + c.h / 2, 24, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     FX.bevelBlock(ctx, c.x, c.y + 2, c.w, c.h - 4, '#ff4fa3', 3);
     FX.roundRectPath(ctx, c.x, c.y + 2, c.w, c.h - 4, 3);
     ctx.strokeStyle = 'rgba(0,0,0,0.5)';
     ctx.lineWidth = 1.5;
     ctx.stroke();
+
+    // diagonal gloss streak across the body for extra shine/roundness
+    ctx.save();
+    FX.roundRectPath(ctx, c.x, c.y + 2, c.w, c.h - 4, 3);
+    ctx.clip();
+    ctx.fillStyle = 'rgba(255,255,255,0.14)';
+    ctx.beginPath();
+    ctx.moveTo(c.x + 2, c.y + 3);
+    ctx.lineTo(c.x + c.w * 0.4, c.y + 3);
+    ctx.lineTo(c.x + c.w * 0.22, c.y + c.h - 5);
+    ctx.lineTo(c.x + 2, c.y + c.h - 5);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
 
     // glassy windshield with a lit-glass gradient + highlight streak
     const glassGrad = ctx.createLinearGradient(c.x, c.y, c.x, c.y + c.h);
@@ -447,9 +664,12 @@ function createFroggerLevel(api) {
     const frontX = dir >= 0 ? c.x + c.w - 3 : c.x;
     FX.chrome(ctx, frontX, c.y + 2, 3, c.h - 4);
 
-    ctx.fillStyle = '#ffe38a';
-    ctx.fillRect(c.x, c.y + 1, 3, 2);
-    ctx.fillRect(c.x + c.w - 3, c.y + 1, 3, 2);
+    // warm headlight up front, dim red taillight at the back
+    const frontIsRight = dir >= 0;
+    ctx.fillStyle = glow ? '#fff8c8' : '#ffe38a';
+    ctx.fillRect(frontIsRight ? c.x + c.w - 3 : c.x, c.y + 1, 3, 2);
+    ctx.fillStyle = '#c23a3a';
+    ctx.fillRect(frontIsRight ? c.x : c.x + c.w - 3, c.y + 1, 3, 2);
   }
 
   return {
@@ -459,10 +679,13 @@ function createFroggerLevel(api) {
       TIME_LIMIT = cfg.timeLimit;
       hasHazardLane = !!cfg.hazard;
       theme = THEMES[cfg.theme] || THEMES.day;
+      themeName = cfg.theme;
+      initAmbient(cfg.theme);
 
       frog = { col: START_COL, row: START_ROW, x: START_COL * CELL + FROG_OFF, y: START_ROW * CELL + FROG_OFF, w: FROG_SIZE, h: FROG_SIZE };
       prevKeys = {};
       hopTimer = 0;
+      hopAnim = null;
       roads = makeLaneEntities(cfg.hazard ? [...cfg.road, cfg.hazard] : cfg.road);
       rivers = makeLaneEntities(cfg.river);
       goalsFilled = GOAL_COLS.map(() => false);
@@ -478,6 +701,11 @@ function createFroggerLevel(api) {
 
     update(dt) {
       hopTimer = Math.max(0, hopTimer - dt);
+      if (hopAnim) { hopAnim.t += dt; if (hopAnim.t >= hopAnim.dur) hopAnim = null; }
+      particles.update(dt);
+      floatTexts.update(dt);
+      flashTimer = Math.max(0, flashTimer - dt);
+      updateAmbient(dt);
 
       timeLeft -= dt;
       if (timeLeft <= 0) {
@@ -532,21 +760,36 @@ function createFroggerLevel(api) {
             hopTimer = HOP_COOLDOWN;
             sfx('bounce');
           } else {
+            const oldX = frog.x, oldY = frog.y;
             frog.col = newCol;
             frog.row = newRow;
             frog.x = frog.col * CELL + FROG_OFF;
             frog.y = frog.row * CELL + FROG_OFF;
             hopTimer = HOP_COOLDOWN;
+            hopAnim = { fromX: oldX, fromY: oldY, toX: frog.x, toY: frog.y, t: 0, dur: HOP_COOLDOWN };
             sfx('hop');
+            // small hop-dust puff at the launch spot, every successful hop
+            particles.burst(oldX + frog.w / 2, oldY + frog.h - 2, 6, {
+              colors: ['#d8c89a', '#b8a878', '#8a7a54'],
+              speedMin: 15, speedMax: 50, lifeMin: 0.18, lifeMax: 0.32,
+              sizeMin: 1.5, sizeMax: 3, gravity: 60,
+            });
             if (frog.row < bestRow) {
               bestRow = frog.row;
               addScore(2);
+              floatTexts.spawn(frog.x + frog.w / 2, frog.y, '+2', '#bfffbf', { life: 0.5, vy: -30, size: 10 });
             }
             if (fly && fly.col === frog.col && fly.row === frog.row) {
               fly = null;
               flyTimer = 5 + Math.random() * 5;
               addScore(15);
               sfx('pickup');
+              particles.burst(frog.x + frog.w / 2, frog.y + frog.h / 2, 10, {
+                colors: ['#fff2a8', '#ffd85c', '#ffffff'],
+                speedMin: 40, speedMax: 110, lifeMin: 0.25, lifeMax: 0.45,
+                sizeMin: 1.5, sizeMax: 3.5,
+              });
+              floatTexts.spawn(frog.x + frog.w / 2, frog.y - 6, '+15', '#ffe38a', { life: 0.7, vy: -36, size: 12 });
             }
           }
         }
@@ -557,6 +800,15 @@ function createFroggerLevel(api) {
       if (roadLane) {
         for (const c of roadLane.items) {
           if (rectsOverlap(frog, c)) {
+            particles.burst(frog.x + frog.w / 2, frog.y + frog.h / 2, 12, {
+              colors: ['#ff5a3a', '#8a1a1a', '#3a3a3a', '#ffcf5c'],
+              speedMin: 50, speedMax: 200, lifeMin: 0.25, lifeMax: 0.5,
+              sizeMin: 2, sizeMax: 5, gravity: 240,
+            });
+            flashTimer = flashDur = 0.16;
+            flashColor = '#ff2a2a';
+            shake(0.18, 5);
+            sfx('hit');
             loseLife();
             return;
           }
@@ -580,11 +832,28 @@ function createFroggerLevel(api) {
       if (riverLane) {
         const log = riverLane.items.find((l) => frog.x + frog.w / 2 > l.x && frog.x + frog.w / 2 < l.x + l.w);
         if (!log) {
+          particles.burst(frog.x + frog.w / 2, frog.y + frog.h / 2, 10, {
+            colors: ['#bfe8ff', '#eaf6ff', '#5a9fd8'],
+            speedMin: 30, speedMax: 100, lifeMin: 0.3, lifeMax: 0.5,
+            sizeMin: 2, sizeMax: 4, gravity: 180, angle: -Math.PI / 2, spread: Math.PI,
+          });
+          flashTimer = flashDur = 0.12;
+          flashColor = '#3a7ad0';
+          sfx('hurt');
           loseLife();
           return;
         }
         frog.x += riverLane.dir * riverLane.speed * speedMul * dt;
         if (frog.x < -frog.w || frog.x > W) {
+          const ex = frog.x < 0 ? 0 : W;
+          particles.burst(ex, frog.y + frog.h / 2, 10, {
+            colors: ['#bfe8ff', '#eaf6ff', '#5a9fd8'],
+            speedMin: 30, speedMax: 100, lifeMin: 0.3, lifeMax: 0.5,
+            sizeMin: 2, sizeMax: 4, gravity: 180, angle: -Math.PI / 2, spread: Math.PI,
+          });
+          flashTimer = flashDur = 0.12;
+          flashColor = '#3a7ad0';
+          sfx('hurt');
           loseLife();
           return;
         }
@@ -603,6 +872,13 @@ function createFroggerLevel(api) {
         const timeBonus = Math.round(Math.max(0, timeLeft));
         addScore(20 + timeBonus);
         sfx('pickup');
+        const goalCx = GOAL_COLS[slotIdx] * CELL + CELL / 2, goalCy = GOAL_ROW * CELL + CELL / 2;
+        particles.burst(goalCx, goalCy, 14, {
+          colors: ['#c8ffc8', '#7fffb0', '#ffe38a', '#ffffff'],
+          speedMin: 50, speedMax: 150, lifeMin: 0.35, lifeMax: 0.65,
+          sizeMin: 2, sizeMax: 4, gravity: 120, angle: -Math.PI / 2, spread: Math.PI,
+        });
+        floatTexts.spawn(goalCx, goalCy - 10, `+${20 + timeBonus}`, '#c8ffc8', { life: 0.9, vy: -34, size: 13 });
         frog.col = START_COL; frog.row = START_ROW;
         frog.x = frog.col * CELL + FROG_OFF; frog.y = frog.row * CELL + FROG_OFF;
         bestRow = START_ROW;
@@ -620,6 +896,7 @@ function createFroggerLevel(api) {
       waterTime += 1 / 60;
 
       FX.gradientRect(ctx, 0, 0, W, GOAL_ROW * CELL + CELL, theme.sky[0], theme.sky[1]);
+      drawAmbientBG(ctx);
 
       FX.gradientRect(ctx, 0, GOAL_ROW * CELL, W, CELL, theme.bank[0], theme.bank[1]);
       GOAL_COLS.forEach((gc, i) => {
@@ -655,16 +932,32 @@ function createFroggerLevel(api) {
           ctx.stroke();
         }
       }
+      // shimmering specular glints drifting across the water surface
+      for (let i = 0; i < 6; i++) {
+        const gy = 2 * CELL + 10 + (i % 4) * 22;
+        const gx = ((waterTime * 30 + i * 97) % (W + 40)) - 20;
+        const glintA = Math.max(0, 0.12 + 0.1 * Math.sin(waterTime * 3 + i));
+        ctx.fillStyle = `rgba(255,255,255,${glintA.toFixed(3)})`;
+        ctx.fillRect(gx, gy, 10, 1.5);
+      }
       rivers.forEach((lane) => {
         lane.items.forEach((l) => {
-          FX.shadow(ctx, l.x + l.w / 2, l.y + l.h - 2, l.w / 2, 4, 0.2);
-          FX.bevelBlock(ctx, l.x, l.y, l.w, l.h, '#8a5a2a', 3);
+          // gentle bob: visual only, never touches l.x/l.w used by collision
+          const bob = Math.sin(waterTime * 2.2 + l.x * 0.03) * 1.4;
+          const ly = l.y + bob;
+          FX.shadow(ctx, l.x + l.w / 2, ly + l.h + 1, l.w / 2, 4, 0.22);
+          FX.bevelBlock(ctx, l.x, ly, l.w, l.h, '#8a5a2a', 3);
+          const glossGrad = ctx.createLinearGradient(l.x, ly, l.x, ly + l.h * 0.5);
+          glossGrad.addColorStop(0, 'rgba(255,230,180,0.28)');
+          glossGrad.addColorStop(1, 'rgba(255,230,180,0)');
+          ctx.fillStyle = glossGrad;
+          ctx.fillRect(l.x + 2, ly + 1, l.w - 4, l.h * 0.45);
           ctx.strokeStyle = 'rgba(0,0,0,0.4)';
           ctx.lineWidth = 1;
-          FX.roundRectPath(ctx, l.x, l.y, l.w, l.h, 3);
+          FX.roundRectPath(ctx, l.x, ly, l.w, l.h, 3);
           ctx.stroke();
           ctx.fillStyle = 'rgba(0,0,0,0.15)';
-          for (let gx = l.x + 6; gx < l.x + l.w - 4; gx += 10) ctx.fillRect(gx, l.y + 3, 2, l.h - 6);
+          for (let gx = l.x + 6; gx < l.x + l.w - 4; gx += 10) ctx.fillRect(gx, ly + 3, 2, l.h - 6);
         });
       });
 
@@ -689,8 +982,9 @@ function createFroggerLevel(api) {
         ctx.stroke();
       }
       ctx.setLineDash([]);
+      const carGlow = NIGHT_THEMES.has(themeName);
       roads.forEach((lane) => {
-        lane.items.forEach((c) => drawCar(ctx, c, lane.dir));
+        lane.items.forEach((c) => drawCar(ctx, c, lane.dir, carGlow));
       });
 
       FX.gradientRect(ctx, 0, 11 * CELL, W, CELL, theme.start[0], theme.start[1]);
@@ -711,13 +1005,36 @@ function createFroggerLevel(api) {
         ctx.fill();
       }
 
-      drawFrog(ctx, frog);
+      // Hop squash/stretch: crouch on launch, stretch mid-air, squash on landing.
+      let frogScaleX = 1, frogScaleY = 1, frogLift = 0;
+      if (hopAnim) {
+        const t = Math.min(1, hopAnim.t / hopAnim.dur);
+        frogLift = Math.sin(t * Math.PI) * 9;
+        if (t < 0.2) {
+          const k = t / 0.2;
+          frogScaleY = 1 - 0.22 * k; frogScaleX = 1 + 0.14 * k;
+        } else if (t < 0.8) {
+          const k = (t - 0.2) / 0.6;
+          const s = Math.sin(k * Math.PI);
+          frogScaleY = 0.78 + 0.4 * s; frogScaleX = 1.16 - 0.24 * s;
+        } else {
+          const k = (t - 0.8) / 0.2;
+          frogScaleY = 1 - 0.28 * (1 - k); frogScaleX = 1 + 0.14 * (1 - k);
+        }
+      }
+      drawFrog(ctx, frog, { scaleX: frogScaleX, scaleY: frogScaleY, lift: frogLift });
+
+      particles.draw(ctx);
+      floatTexts.draw(ctx);
+      drawAmbientFG(ctx);
 
       ctx.fillStyle = '#e8ecff';
       ctx.font = '9px monospace';
       ctx.fillText(`PADS ${goalsFilled.filter(Boolean).length}/${GOAL_COLS.length}`, 8, 16);
       ctx.fillStyle = timeLeft < 6 ? '#ff5c5c' : '#e8ecff';
       ctx.fillText(`TIME ${Math.ceil(timeLeft)}`, W - 60, 16);
+
+      if (flashTimer > 0) FX.flash(ctx, W, H, flashColor, 0.4 * (flashTimer / flashDur));
     },
   };
 }

@@ -515,14 +515,44 @@ function createPlatformerLevel(api) {
   function themeForStage(stage) { return STAGE_THEMES[Math.min(Math.max(stage, 1), 10) - 1]; }
 
   let platforms, coins, WORLD_END, flag;
-  let player, camX, enemies, coinList, onGround, spawnX, spawnY, particles, jumpKeyPrev;
+  let player, camX, enemies, coinList, onGround, spawnX, spawnY, jumpKeyPrev;
   let currentStage, checkpoint, coyoteTimer, jumpBufferTimer, stompChain;
+  let ambientT, flagWaveT, flashAlpha, flashColor, airMinY, torches;
+
+  // Particle + floating-text systems, created once for the life of this level
+  // instance (not per-frame) and reused across stages/retries.
+  const fxParticles = FX.makeParticles(90);
+  const fxText = FX.makeFloatText(24);
+
+  // Drifting cloud layer, generated once — purely cosmetic parallax, drawn in
+  // screen space like the existing mountain silhouette layer.
+  const clouds = Array.from({ length: 6 }, (_, i) => ({
+    baseX: i * 260 + Math.random() * 140,
+    y: 18 + Math.random() * 46,
+    w: 46 + Math.random() * 40,
+    speed: 6 + Math.random() * 8,
+  }));
 
   function drawHero(ctx, p) {
     const cx = p.x + p.w / 2;
     const stride = onGround && p.vx !== 0 ? Math.sin(p.animT) * 5 : 0;
     const legLift = !onGround ? 3 : 0;
     if (onGround) FX.shadow(ctx, cx, p.y + p.h + 2, p.w / 2, 3, 0.3);
+
+    // Squash-and-stretch: scale the whole sprite around its feet.
+    ctx.save();
+    ctx.translate(cx, p.y + p.h);
+    ctx.scale(p.scaleX, p.scaleY);
+    ctx.translate(-cx, -(p.y + p.h));
+
+    // Idle breathing + blink when standing still.
+    const idle = onGround && p.vx === 0 ? p.idleT : 0;
+    const breathe = idle > 0.15 ? Math.sin(idle * 2.2) * 0.03 : 0;
+    const blinking = idle > 0.4 && (idle % 2.6) < 0.1;
+    ctx.save();
+    ctx.translate(cx, p.y + p.h);
+    ctx.scale(1, 1 + breathe);
+    ctx.translate(-cx, -(p.y + p.h));
 
     // legs — subtle gradient + outline
     const legGrad = ctx.createLinearGradient(0, p.y + 18, 0, p.y + 30);
@@ -579,23 +609,30 @@ function createPlatformerLevel(api) {
     ctx.fillStyle = 'rgba(255,255,255,0.18)';
     ctx.fillRect(cx - 4, p.y, 3, 2);
 
-    // eye + specular glint
-    ctx.fillStyle = '#1a1a1a';
-    ctx.fillRect(cx + p.facing * 2, p.y + 5, 2, 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    ctx.fillRect(cx + p.facing * 2 + (p.facing > 0 ? 0.2 : 0.9), p.y + 5.2, 0.7, 0.7);
+    // eye + specular glint (closes for a brief blink while idle)
+    if (blinking) {
+      ctx.strokeStyle = '#1a1a1a';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(cx + p.facing * 2 - 1, p.y + 6);
+      ctx.lineTo(cx + p.facing * 2 + 1, p.y + 6);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(cx + p.facing * 2, p.y + 5, 2, 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.fillRect(cx + p.facing * 2 + (p.facing > 0 ? 0.2 : 0.9), p.y + 5.2, 0.7, 0.7);
+    }
+
+    ctx.restore(); // breathing scale
+    ctx.restore(); // squash/stretch scale
   }
 
   function resetPlayer() {
-    player = { x: spawnX, y: spawnY, w: 22, h: 28, vx: 0, vy: 0, facing: 1, animT: 0, jumpsUsed: 0 };
-  }
-
-  function burst(x, y, color) {
-    for (let i = 0; i < 8; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const spd = 40 + Math.random() * 90;
-      particles.push({ x, y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, life: 0.3, color });
-    }
+    player = {
+      x: spawnX, y: spawnY, w: 22, h: 28, vx: 0, vy: 0, facing: 1, animT: 0,
+      jumpsUsed: 0, scaleX: 1, scaleY: 1, idleT: 0,
+    };
   }
 
   return {
@@ -616,6 +653,15 @@ function createPlatformerLevel(api) {
         flag = data.flag;
         enemies = data.enemies;
         coinList = data.coins;
+
+        // Ambient background torches — purely decorative, spaced along this
+        // stage's world length so they scale with worldEnd without touching
+        // any gameplay config.
+        const torchCount = Math.min(10, Math.max(2, Math.round(WORLD_END / 480)));
+        torches = Array.from({ length: torchCount }, (_, i) => ({
+          x: 60 + i * (WORLD_END / torchCount),
+          phase: Math.random() * Math.PI * 2,
+        }));
       }
       // else: a same-stage retry after losing a life re-calls init() with the
       // same stage number (see game.js) — enemies/coins/checkpoint from this
@@ -628,7 +674,13 @@ function createPlatformerLevel(api) {
       resetPlayer();
       camX = Math.max(0, Math.min(WORLD_END - W, spawnX - W / 2));
       onGround = true;
-      particles = [];
+      airMinY = player.y;
+      fxParticles.clear();
+      fxText.clear();
+      ambientT = 0;
+      flagWaveT = 0;
+      flashAlpha = 0;
+      flashColor = '#ff3050';
       jumpKeyPrev = false;
       coyoteTimer = 0;
       jumpBufferTimer = 0;
@@ -642,6 +694,13 @@ function createPlatformerLevel(api) {
       if (player.vx > 0) player.facing = 1;
       else if (player.vx < 0) player.facing = -1;
       player.animT += dt * (player.vx !== 0 ? 10 : 3);
+      player.idleT = (onGround && player.vx === 0) ? player.idleT + dt : 0;
+
+      // Track the highest point reached during the current airborne stretch,
+      // so a landing can size its dust puff / squash to how far the fall was.
+      const wasOnGround = onGround;
+      if (!wasOnGround) airMinY = Math.min(airMinY, player.y);
+      else airMinY = player.y;
 
       // Coyote time: a short grace window after walking off a ledge where a
       // ground-strength jump is still allowed, so near-miss timing at platform
@@ -664,12 +723,18 @@ function createPlatformerLevel(api) {
           jumpBufferTimer = 0;
           player.jumpsUsed = 1;
           sfx('jump');
+          player.scaleY = 1.28; player.scaleX = 0.8;
         } else if (player.jumpsUsed < 2) {
           player.vy = JUMP_VEL * 0.85;
           player.jumpsUsed = 2;
           jumpBufferTimer = 0;
           sfx('jump');
-          burst(player.x + player.w / 2, player.y + player.h, '#4fe3d0');
+          player.scaleY = 1.3; player.scaleX = 0.76;
+          fxParticles.burst(player.x + player.w / 2, player.y + player.h, 8, {
+            colors: ['#4fe3d0', '#7dffea', '#bffff0'], speedMin: 30, speedMax: 100,
+            lifeMin: 0.2, lifeMax: 0.4, sizeMin: 1.5, sizeMax: 3, gravity: 150,
+            angle: Math.PI / 2, spread: Math.PI * 0.8,
+          });
         }
       }
 
@@ -699,11 +764,33 @@ function createPlatformerLevel(api) {
       }
       player.x = Math.max(0, Math.min(WORLD_END - player.w, player.x));
 
-      particles.forEach((pt) => { pt.x += pt.vx * dt; pt.y += pt.vy * dt; pt.life -= dt; });
-      particles = particles.filter((pt) => pt.life > 0);
+      if (!wasOnGround && onGround) {
+        // Just touched down — dust puff sized (and squash strengthened) by
+        // how far the fall was, tracked via airMinY above.
+        const fallDist = Math.max(0, player.y - airMinY);
+        const puffCount = Math.max(4, Math.min(16, Math.round(4 + fallDist / 12)));
+        fxParticles.burst(player.x + player.w / 2, player.y + player.h, puffCount, {
+          colors: ['#d8d4c8', '#eee8d5', '#b8b0a0'], speedMin: 20, speedMax: 60 + fallDist,
+          lifeMin: 0.2, lifeMax: 0.45, sizeMin: 2, sizeMax: 4, gravity: 200,
+          angle: -Math.PI / 2, spread: Math.PI * 0.9,
+        });
+        const squashAmt = Math.min(0.45, 0.1 + fallDist / 300);
+        player.scaleY = 1 - squashAmt;
+        player.scaleX = 1 + squashAmt * 0.7;
+        if (fallDist > 40) {
+          // Wood-splinter accent on a hard landing — a nod to the "Crate
+          // Runner" theme of the platforms you're pounding across.
+          fxParticles.burst(player.x + player.w / 2, player.y + player.h, 6, {
+            colors: ['#c9a15a', '#8a6a3a', '#6b4a26'], speedMin: 40, speedMax: 140,
+            lifeMin: 0.25, lifeMax: 0.5, sizeMin: 1.5, sizeMax: 3, gravity: 300,
+          });
+        }
+      }
 
       if (player.y > H + 100) {
         stompChain = 0;
+        flashAlpha = 0.5; flashColor = '#ff3050';
+        shake(0.2, 6);
         loseLife();
         return;
       }
@@ -723,8 +810,13 @@ function createPlatformerLevel(api) {
             player.jumpsUsed = 0;
             stompChain++;
             const mult = Math.min(stompChain, 5);
-            addScore(20 + (mult - 1) * 15);
-            burst(e.x + e.w / 2, e.y + e.h / 2, '#ff4fa3');
+            const gained = 20 + (mult - 1) * 15;
+            addScore(gained);
+            fxParticles.burst(e.x + e.w / 2, e.y + e.h / 2, 10, {
+              colors: ['#ff4fa3', '#ffd0e6', '#7a1a45'], speedMin: 60, speedMax: 160,
+              lifeMin: 0.25, lifeMax: 0.5, sizeMin: 2, sizeMax: 4, gravity: 250,
+            });
+            fxText.spawn(e.x + e.w / 2, e.y, `+${gained}`, '#ffd24f', { life: 0.7, size: 12 });
             if (stompChain >= 3) {
               sfx('explosion');
               shake(0.15, 5);
@@ -734,6 +826,12 @@ function createPlatformerLevel(api) {
             }
           } else {
             stompChain = 0;
+            fxParticles.burst(player.x + player.w / 2, player.y + player.h / 2, 12, {
+              colors: ['#ff3050', '#ff8a50', '#ffe0a0'], speedMin: 50, speedMax: 170,
+              lifeMin: 0.3, lifeMax: 0.55, sizeMin: 2, sizeMax: 4, gravity: 200,
+            });
+            flashAlpha = 0.45; flashColor = '#ff3050';
+            shake(0.18, 6);
             loseLife();
             return;
           }
@@ -745,15 +843,36 @@ function createPlatformerLevel(api) {
           c.taken = true;
           addScore(5);
           sfx('pickup');
+          fxParticles.burst(c.x, c.y, 8, {
+            colors: ['#ffe98a', '#ffd24f', '#fff6d0'], speedMin: 30, speedMax: 90,
+            lifeMin: 0.25, lifeMax: 0.45, sizeMin: 1.5, sizeMax: 3, gravity: 80,
+          });
+          fxText.spawn(c.x, c.y - 6, '+5', '#ffd24f', { life: 0.6, size: 11 });
         }
       });
 
       if (rectsOverlapP(player, flag)) {
+        fxParticles.burst(flag.x + 12, flag.y + 8, 16, {
+          colors: ['#7dffea', '#ffffff', '#ffd24f'], speedMin: 60, speedMax: 180,
+          lifeMin: 0.4, lifeMax: 0.7, sizeMin: 2, sizeMax: 4, gravity: 100,
+        });
+        fxText.spawn(flag.x + 12, flag.y - 10, '+30', '#7dffea', { life: 1, size: 16 });
         winLevel(30);
         return;
       }
 
       camX = Math.max(0, Math.min(WORLD_END - W, player.x - W / 2));
+
+      // Ease the squash/stretch scale back toward normal each frame.
+      const scaleLerp = Math.min(1, dt * 10);
+      player.scaleX += (1 - player.scaleX) * scaleLerp;
+      player.scaleY += (1 - player.scaleY) * scaleLerp;
+
+      ambientT += dt;
+      flagWaveT += dt;
+      flashAlpha = Math.max(0, flashAlpha - dt * 2.2);
+      fxParticles.update(dt);
+      fxText.update(dt);
     },
 
     draw(ctx) {
@@ -781,8 +900,34 @@ function createPlatformerLevel(api) {
         ctx.fillStyle = mtnGrad;
       }
 
+      // Drifting cloud layer — slower parallax than the mountains, plus a
+      // slow independent drift over time so they never look frozen.
+      ctx.fillStyle = 'rgba(255,255,255,0.10)';
+      clouds.forEach((cl) => {
+        const cw = W + 320;
+        const px = ((cl.baseX + ambientT * cl.speed - camX * 0.12) % cw + cw) % cw - 160;
+        FX.shadow(ctx, px, cl.y, cl.w * 0.5, cl.w * 0.22, 1);
+      });
+
       ctx.save();
       ctx.translate(-camX, 0);
+
+      // Background torches — fixed world positions, flickering flame.
+      torches.forEach((t) => {
+        const flick = 0.75 + Math.sin(ambientT * 9 + t.phase) * 0.15 + Math.sin(ambientT * 23 + t.phase) * 0.1;
+        const baseY = GROUND_Y;
+        ctx.fillStyle = '#3a2a1a';
+        ctx.fillRect(t.x - 2, baseY - 28, 4, 28);
+        const flameH = 10 * flick;
+        const flameGrad = ctx.createRadialGradient(t.x, baseY - 30, 1, t.x, baseY - 30, 8);
+        flameGrad.addColorStop(0, '#fff3c0');
+        flameGrad.addColorStop(0.5, '#ffb040');
+        flameGrad.addColorStop(1, 'rgba(255,80,20,0)');
+        ctx.fillStyle = flameGrad;
+        ctx.beginPath();
+        ctx.ellipse(t.x, baseY - 28 - flameH * 0.5, 5, flameH, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
 
       platforms.forEach((p) => {
         FX.shadow(ctx, p.x + p.w / 2, p.y + p.h + 6, p.w / 2, 6, 0.3);
@@ -811,6 +956,11 @@ function createPlatformerLevel(api) {
         ctx.moveTo(p.x + 2, p.y + p.h * 0.55);
         ctx.lineTo(p.x + p.w - 2, p.y + p.h * 0.55);
         ctx.stroke();
+
+        // crate-style corner bolts — small nod to the "Crate Runner" theme
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.fillRect(p.x + 3, p.y + p.h - 6, 2, 2);
+        ctx.fillRect(p.x + p.w - 5, p.y + p.h - 6, 2, 2);
       });
 
       coinList.forEach((c) => {
@@ -864,21 +1014,28 @@ function createPlatformerLevel(api) {
       clothGrad.addColorStop(0, '#7dffea');
       clothGrad.addColorStop(1, '#3ab8a8');
       ctx.fillStyle = clothGrad;
-      ctx.fillRect(flag.x + 3, flag.y, 24, 16);
+      // Gentle wave on the outer edge of the cloth instead of a static rect.
+      const waveA = Math.sin(flagWaveT * 4) * 3;
+      const waveB = Math.sin(flagWaveT * 4 + 1.3) * 3;
+      ctx.beginPath();
+      ctx.moveTo(flag.x + 3, flag.y);
+      ctx.lineTo(flag.x + 27, flag.y + waveA);
+      ctx.lineTo(flag.x + 27, flag.y + 16 + waveB);
+      ctx.lineTo(flag.x + 3, flag.y + 16);
+      ctx.closePath();
+      ctx.fill();
       ctx.strokeStyle = 'rgba(0,0,0,0.4)';
       ctx.lineWidth = 1;
-      ctx.strokeRect(flag.x + 3, flag.y, 24, 16);
+      ctx.stroke();
 
       drawHero(ctx, player);
 
-      particles.forEach((pt) => {
-        ctx.fillStyle = pt.color;
-        ctx.globalAlpha = Math.max(0, pt.life / 0.3);
-        ctx.fillRect(pt.x - 2, pt.y - 2, 4, 4);
-        ctx.globalAlpha = 1;
-      });
+      fxParticles.draw(ctx);
+      fxText.draw(ctx);
 
       ctx.restore();
+
+      if (flashAlpha > 0) FX.flash(ctx, W, H, flashColor, flashAlpha);
 
       ctx.fillStyle = '#e8ecff';
       ctx.font = '9px monospace';

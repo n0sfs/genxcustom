@@ -3,8 +3,14 @@ function createShooterLevel(api) {
 
   const ENEMY_W = 32, ENEMY_H = 20, GAP = 12;
 
+  // Created once per level instance (not per frame/stage) — cheap shared
+  // juice systems for hit sparks, debris and floating score text.
+  const particles = FX.makeParticles(140);
+  const floatText = FX.makeFloatText(24);
+
   let player, bullets, enemyBullets, enemies, enemyDir, enemyStepTimer;
-  let shotCooldown, hitFlash, invuln, particles, ufo, ufoTimer, popups, bunkers, stars, combo;
+  let shotCooldown, hitFlash, screenFlash, invuln, ufo, ufoTimer, ufoAlert, bunkers, stars, starsFar, combo, comboTimer;
+  let muzzleFlash, engineTrailTimer;
   let cfg, rows, cols, gridW, startX, totalEnemies;
   const UFO_SCORES = [50, 50, 100, 100, 150, 300];
 
@@ -98,13 +104,24 @@ function createShooterLevel(api) {
 
   function spawnStars() {
     stars = [];
-    for (let i = 0; i < 45; i++) {
+    for (let i = 0; i < 40; i++) {
       stars.push({
         x: Math.random() * W,
         y0: Math.random() * H,
         speed: 15 + Math.random() * 45,
         r: Math.random() < 0.75 ? 0.8 : 1.6,
         tw: Math.random() * Math.PI * 2,
+      });
+    }
+    // Slower, dimmer, bigger far layer drawn beneath `stars` for a cheap
+    // sense of parallax depth in the nebula.
+    starsFar = [];
+    for (let i = 0; i < 18; i++) {
+      starsFar.push({
+        x: Math.random() * W,
+        y0: Math.random() * H,
+        speed: 4 + Math.random() * 10,
+        r: 1 + Math.random() * 1.4,
       });
     }
   }
@@ -119,20 +136,17 @@ function createShooterLevel(api) {
     neb.addColorStop(1, palette[2]);
     ctx.fillStyle = neb;
     ctx.fillRect(0, 0, W, H);
+    starsFar.forEach((s) => {
+      const y = (s.y0 + t * s.speed) % H;
+      ctx.fillStyle = 'rgba(180,190,230,0.28)';
+      ctx.fillRect(s.x, y, s.r, s.r);
+    });
     stars.forEach((s) => {
       const y = (s.y0 + t * s.speed) % H;
       const tw = 0.5 + 0.5 * Math.sin(t * 3 + s.tw);
       ctx.fillStyle = `rgba(220,230,255,${0.35 + tw * 0.5})`;
       ctx.fillRect(s.x, y, s.r, s.r);
     });
-  }
-
-  function burst(x, y, color) {
-    for (let i = 0; i < 10; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const spd = 60 + Math.random() * 160;
-      particles.push({ x, y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, life: 0.35, color });
-    }
   }
 
   const INVADER_PATTERNS = [
@@ -185,6 +199,7 @@ function createShooterLevel(api) {
           alive: true,
           color: r === 0 ? '#ff4fa3' : r === 1 ? '#ffd24f' : r === 2 ? '#4fe3d0' : '#6bff6b',
           pattern: INVADER_PATTERNS[Math.min(r, 2)],
+          bobSeed: Math.random() * Math.PI * 2,
         });
       }
     }
@@ -195,18 +210,33 @@ function createShooterLevel(api) {
     const rows = e.pattern;
     const cols = rows[0].length;
     const cw = e.w / cols, ch = e.h / rows.length;
+    // Purely visual idle bob so the formation never looks frozen even
+    // between step ticks — does not touch e.y, which drives collision/logic.
+    const bob = Math.sin(Date.now() / 260 + e.bobSeed) * 1.1;
+    const ex = e.x, ey = e.y + bob;
     // soft glow behind the sprite, then shade rows light-to-dark for a lit, chunky pixel-art look
-    FX.shadow(ctx, e.x + e.w / 2, e.y + e.h + 2, e.w / 2.4, 3, 0.25);
+    FX.shadow(ctx, ex + e.w / 2, e.y + e.h + 2, e.w / 2.4, 3, 0.25);
     for (let r = 0; r < rows.length; r++) {
       ctx.fillStyle = FX.shade(e.color, 22 - r * 14);
       for (let c = 0; c < cols; c++) {
-        if (rows[r][c] === 'X') ctx.fillRect(e.x + c * cw, e.y + r * ch, cw + 0.5, ch + 0.5);
+        if (rows[r][c] === 'X') ctx.fillRect(ex + c * cw, ey + r * ch, cw + 0.5, ch + 0.5);
       }
+    }
+    // bright top-edge highlight strip for a raised, lit-from-above look
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    for (let c = 0; c < cols; c++) {
+      if (rows[0][c] === 'X') ctx.fillRect(ex + c * cw, ey, cw + 0.5, Math.max(1, ch * 0.25));
+    }
+    // dark rim shadow along the bottom edge for depth
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    const lastRow = rows.length - 1;
+    for (let c = 0; c < cols; c++) {
+      if (rows[lastRow][c] === 'X') ctx.fillRect(ex + c * cw, ey + lastRow * ch + ch * 0.7, cw + 0.5, ch * 0.3);
     }
     // dark silhouette outline around the whole sprite footprint
     ctx.strokeStyle = 'rgba(0,0,0,0.45)';
     ctx.lineWidth = 1;
-    ctx.strokeRect(e.x + 0.5, e.y + 0.5, e.w - 1, e.h - 1);
+    ctx.strokeRect(ex + 0.5, ey + 0.5, e.w - 1, e.h - 1);
   }
 
   return {
@@ -223,11 +253,16 @@ function createShooterLevel(api) {
       shotCooldown = 0;
       invuln = 1.2;
       hitFlash = 0;
-      particles = [];
+      screenFlash = 0;
+      muzzleFlash = 0;
+      engineTrailTimer = 0;
+      particles.clear();
       ufo = null;
       ufoTimer = cfg.ufoMin + Math.random() * (cfg.ufoMax - cfg.ufoMin);
-      popups = [];
+      ufoAlert = 0;
+      floatText.clear();
       combo = 0;
+      comboTimer = 0;
       spawnBunkers();
       spawnStars();
     },
@@ -235,21 +270,52 @@ function createShooterLevel(api) {
     update(dt) {
       invuln = Math.max(0, invuln - dt);
       hitFlash = Math.max(0, hitFlash - dt);
+      screenFlash = Math.max(0, screenFlash - dt);
+      muzzleFlash = Math.max(0, muzzleFlash - dt);
+      comboTimer = Math.max(0, comboTimer - dt);
+      ufoAlert = Math.max(0, ufoAlert - dt);
       shotCooldown = Math.max(0, shotCooldown - dt);
 
       if (isDown('ArrowLeft', 'a')) player.x -= player.speed * dt;
       if (isDown('ArrowRight', 'd')) player.x += player.speed * dt;
       player.x = Math.max(0, Math.min(W - player.w, player.x));
 
+      // Continuous engine exhaust trail behind both nacelles, even when idle,
+      // so the ship never looks static while sat on the pad.
+      engineTrailTimer -= dt;
+      if (engineTrailTimer <= 0) {
+        engineTrailTimer = 0.03;
+        [player.x + 4, player.x + player.w - 4].forEach((fx) => {
+          particles.spawn(fx, player.y + player.h + 2, {
+            vx: (Math.random() - 0.5) * 12,
+            vy: 60 + Math.random() * 40,
+            life: 0.22,
+            size: 2 + Math.random() * 1.5,
+            color: Math.random() < 0.5 ? '#ffd28a' : '#ff9a4f',
+          });
+        });
+      }
+
       if (isDown('Space') && shotCooldown <= 0) {
         bullets.push({ x: player.x + player.w / 2 - 2, y: player.y, w: 4, h: 10 });
         shotCooldown = 0.28;
+        muzzleFlash = 0.06;
+        particles.burst(player.x + player.w / 2, player.y - 2, 4, {
+          colors: ['#fff6c8', '#ffd24f'], speedMin: 30, speedMax: 90, lifeMin: 0.08, lifeMax: 0.16,
+          sizeMin: 1.5, sizeMax: 3, angle: -Math.PI / 2, spread: 0.9,
+        });
         sfx('shoot');
       }
 
       bullets.forEach((b) => (b.y -= 420 * dt));
       bullets = bullets.filter((b) => b.y + b.h > 0);
-      bullets.forEach((b) => { if (hitBunkers(b)) { b.hit = true; sfx('bounce'); } });
+      bullets.forEach((b) => {
+        if (hitBunkers(b)) {
+          b.hit = true;
+          sfx('bounce');
+          particles.burst(b.x + b.w / 2, b.y, 5, { colors: ['#9be89b', '#6bff6b'], speedMin: 20, speedMax: 70, lifeMin: 0.15, lifeMax: 0.3, sizeMin: 1.5, sizeMax: 3 });
+        }
+      });
       bullets = bullets.filter((b) => !b.hit);
 
       const aliveEnemies = enemies.filter((e) => e.alive);
@@ -281,7 +347,13 @@ function createShooterLevel(api) {
       }
       enemyBullets.forEach((b) => (b.y += 260 * dt));
       enemyBullets = enemyBullets.filter((b) => b.y < H);
-      enemyBullets.forEach((b) => { if (hitBunkers(b)) { b.hit = true; sfx('bounce'); } });
+      enemyBullets.forEach((b) => {
+        if (hitBunkers(b)) {
+          b.hit = true;
+          sfx('bounce');
+          particles.burst(b.x + b.w / 2, b.y, 5, { colors: ['#9be89b', '#6bff6b'], speedMin: 20, speedMax: 70, lifeMin: 0.15, lifeMax: 0.3, sizeMin: 1.5, sizeMax: 3 });
+        }
+      });
       enemyBullets = enemyBullets.filter((b) => !b.hit);
 
       bullets.forEach((b) => {
@@ -291,13 +363,20 @@ function createShooterLevel(api) {
             e.alive = false;
             b.hit = true;
             combo++;
+            comboTimer = 1.6;
             const bonus = 10 + Math.min(30, (combo - 1) * 4);
             addScore(bonus);
-            burst(e.x + e.w / 2, e.y + e.h / 2, e.color);
+            // debris burst breaking apart in the enemy's own colors, plus a
+            // few bright white sparks so the pop reads against dark hulls too
+            particles.burst(e.x + e.w / 2, e.y + e.h / 2, 12, {
+              colors: [e.color, FX.shade(e.color, -30), '#ffffff'],
+              speedMin: 50, speedMax: 200, lifeMin: 0.25, lifeMax: 0.5,
+              sizeMin: 2, sizeMax: 5, gravity: 90,
+            });
             // milestone kills in a streak get a bigger, punchier boom
             sfx(combo > 1 && combo % 5 === 0 ? 'explosion' : 'hit');
             shake(0.08, 2);
-            popups.push({ x: e.x + e.w / 2, y: e.y, text: combo > 1 ? `+${bonus} x${combo}` : `+${bonus}`, life: 0.6 });
+            floatText.spawn(e.x + e.w / 2, e.y, combo > 1 ? `+${bonus} x${combo}` : `+${bonus}`, '#ffd24f', { life: 0.6, size: 11 });
             break;
           }
         }
@@ -309,6 +388,8 @@ function createShooterLevel(api) {
         if (ufoTimer <= 0) {
           const dir = Math.random() < 0.5 ? 1 : -1;
           ufo = { x: dir > 0 ? -36 : W + 36, y: 20, w: 36, h: 14, dir, alive: true };
+          // brief screen-edge glow to call out the bonus target arriving
+          ufoAlert = 0.6;
         }
       } else {
         ufo.x += ufo.dir * 90 * dt;
@@ -328,10 +409,14 @@ function createShooterLevel(api) {
           if (rectsOverlap(b, ufo)) {
             b.hit = true;
             combo++;
+            comboTimer = 1.6;
             const bonus = UFO_SCORES[Math.floor(Math.random() * UFO_SCORES.length)];
             addScore(bonus);
-            burst(ufo.x + ufo.w / 2, ufo.y + ufo.h / 2, '#ff4fa3');
-            popups.push({ x: ufo.x + ufo.w / 2, y: ufo.y, text: `+${bonus}`, life: 0.9 });
+            particles.burst(ufo.x + ufo.w / 2, ufo.y + ufo.h / 2, 16, {
+              colors: ['#ff4fa3', '#ffe3ee', '#ffffff'], speedMin: 60, speedMax: 220,
+              lifeMin: 0.3, lifeMax: 0.55, sizeMin: 2, sizeMax: 5, gravity: 60,
+            });
+            floatText.spawn(ufo.x + ufo.w / 2, ufo.y, `+${bonus}`, '#ff9fd0', { life: 0.9, size: 13 });
             sfx('explosion');
             shake(0.1, 3);
             ufo = null;
@@ -341,17 +426,21 @@ function createShooterLevel(api) {
         bullets = bullets.filter((b) => !b.hit);
       }
 
-      particles.forEach((p) => { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; });
-      particles = particles.filter((p) => p.life > 0);
-      popups.forEach((p) => { p.y -= 30 * dt; p.life -= dt; });
-      popups = popups.filter((p) => p.life > 0);
+      particles.update(dt);
+      floatText.update(dt);
 
       if (invuln <= 0) {
         for (const b of enemyBullets) {
           if (rectsOverlap(b, player)) {
             b.hit = true;
             hitFlash = 0.5;
+            screenFlash = 0.35;
             invuln = 1.2;
+            particles.burst(player.x + player.w / 2, player.y + player.h / 2, 14, {
+              colors: ['#ff5c5c', '#ffb347', '#ffffff'], speedMin: 50, speedMax: 200,
+              lifeMin: 0.25, lifeMax: 0.5, sizeMin: 2, sizeMax: 5, gravity: 70,
+            });
+            shake(0.18, 5);
             sfx('hurt');
             loseLife();
             return;
@@ -361,6 +450,8 @@ function createShooterLevel(api) {
       enemyBullets = enemyBullets.filter((b) => !b.hit);
 
       if (aliveEnemies.some((e) => e.y + e.h >= player.y)) {
+        screenFlash = 0.35;
+        shake(0.18, 5);
         sfx('hurt');
         loseLife();
         return;
@@ -373,6 +464,19 @@ function createShooterLevel(api) {
 
     draw(ctx) {
       drawStarfield(ctx);
+
+      // Screen-edge alert glow when the bonus UFO shows up — a cheap way to
+      // sell "something big just entered" without touching gameplay.
+      if (ufoAlert > 0) {
+        const a = (ufoAlert / 0.6) * 0.5;
+        const edgeGrad = ctx.createLinearGradient(0, 0, 0, H);
+        edgeGrad.addColorStop(0, `rgba(255,79,163,${a})`);
+        edgeGrad.addColorStop(0.15, 'rgba(255,79,163,0)');
+        edgeGrad.addColorStop(0.85, 'rgba(255,79,163,0)');
+        edgeGrad.addColorStop(1, `rgba(255,79,163,${a})`);
+        ctx.fillStyle = edgeGrad;
+        ctx.fillRect(0, 0, W, H);
+      }
 
       const shipColor = hitFlash > 0 && Math.floor(hitFlash * 20) % 2 === 0 ? '#ff5c5c' : '#4fe3d0';
       FX.shadow(ctx, player.x + player.w / 2, player.y + player.h + 4, player.w / 2, 4, 0.3);
@@ -439,6 +543,18 @@ function createShooterLevel(api) {
       ctx.lineWidth = 0.8;
       ctx.stroke();
 
+      // brief muzzle flash glow at the nose when firing
+      if (muzzleFlash > 0) {
+        const mzX = player.x + player.w / 2, mzY = player.y - 6;
+        const mzGrad = ctx.createRadialGradient(mzX, mzY, 0, mzX, mzY, 9);
+        mzGrad.addColorStop(0, `rgba(255,246,200,${muzzleFlash / 0.06})`);
+        mzGrad.addColorStop(1, 'rgba(255,210,79,0)');
+        ctx.fillStyle = mzGrad;
+        ctx.beginPath();
+        ctx.arc(mzX, mzY, 9, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
       bunkers.forEach((bk) => {
         ctx.fillStyle = '#123a20';
         bk.blocks.forEach((row, r) => {
@@ -502,22 +618,28 @@ function createShooterLevel(api) {
       enemyBullets.forEach((b) => ctx.fillRect(b.x, b.y, b.w, b.h));
       ctx.restore();
 
-      particles.forEach((p) => {
-        ctx.fillStyle = p.color;
-        ctx.globalAlpha = Math.max(0, p.life / 0.35);
-        ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
-        ctx.globalAlpha = 1;
-      });
-
-      ctx.font = '10px monospace';
-      ctx.textAlign = 'center';
-      popups.forEach((p) => {
-        ctx.fillStyle = '#ffd24f';
-        ctx.globalAlpha = Math.max(0, p.life / 0.9);
-        ctx.fillText(p.text, p.x, p.y);
-        ctx.globalAlpha = 1;
-      });
+      // particles and floating score text render as an overlay above sprites
+      particles.draw(ctx);
+      floatText.draw(ctx);
       ctx.textAlign = 'left';
+
+      // combo callout while a kill streak is still "hot"
+      if (comboTimer > 0 && combo > 1) {
+        const a = Math.min(1, comboTimer / 1.6);
+        ctx.save();
+        ctx.globalAlpha = a;
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 13px monospace';
+        ctx.fillStyle = combo % 5 === 0 ? '#ff4fa3' : '#ffd24f';
+        ctx.fillText(`COMBO x${combo}`, W / 2, 24);
+        ctx.restore();
+        ctx.textAlign = 'left';
+      }
+
+      // hit-stun flash wash, then a light CRT cabinet finish
+      if (screenFlash > 0) FX.flash(ctx, W, H, '#ff5c5c', (screenFlash / 0.35) * 0.35);
+      FX.vignette(ctx, W, H, 0.3);
+      FX.scanlines(ctx, W, H, 0.04);
     },
   };
 }

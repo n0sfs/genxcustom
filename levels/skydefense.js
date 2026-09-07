@@ -37,10 +37,48 @@ function createSkyDefenseLevel(api) {
     return SKY_THEMES[SKY_THEMES.length - 1].colors;
   }
 
-  let cities, crosshair, fireCooldown, interceptors, blasts, missiles, particles, impacts, stars;
+  let cities, crosshair, fireCooldown, interceptors, blasts, groundBlasts, missiles, impacts, stars;
   let spawnTimer, elapsed, kills, nextSurvivalBonusAt;
   let currentStage = 1;
   let stageIntervalBase, stageIntervalFloor, stageSpeedBase, stageSpeedVar, stageSpeedRampCap, stageBurstChance;
+  let flashTimer = 0, flashColor = '#ff3020';
+  const FLASH_DURATION = 0.18;
+
+  // Shared FX systems, created once per level instance (not per frame/stage) —
+  // init() only clears them between stages/restarts. Pure visual polish: no
+  // effect here reads or feeds back into spawn timing, scoring, or stage config.
+  const fxParticles = FX.makeParticles(200);
+  const fxFloatText = FX.makeFloatText(24);
+
+  // Purely cosmetic missile color variety so later (visually more dangerous)
+  // stages feel more chaotic, without touching spawn rate/speed/timing at all.
+  // Each spawned missile just randomly picks one look from its stage's palette.
+  const MISSILE_PALETTES = [
+    { max: 2, looks: [{ head: '#ffb84f', glow: '#ff6a3a', trail: 'rgba(255,110,60,0.5)' }] },
+    { max: 4, looks: [
+      { head: '#ffb84f', glow: '#ff6a3a', trail: 'rgba(255,110,60,0.5)' },
+      { head: '#ff8a3a', glow: '#ff4a1a', trail: 'rgba(255,80,40,0.5)' },
+    ] },
+    { max: 7, looks: [
+      { head: '#ffb84f', glow: '#ff6a3a', trail: 'rgba(255,110,60,0.55)' },
+      { head: '#ff6a3a', glow: '#ff2a10', trail: 'rgba(255,60,20,0.55)' },
+      { head: '#ffdf6a', glow: '#ffd23a', trail: 'rgba(255,210,80,0.5)' },
+    ] },
+    { max: Infinity, looks: [
+      { head: '#ffb84f', glow: '#ff6a3a', trail: 'rgba(255,110,60,0.6)' },
+      { head: '#ff6a3a', glow: '#ff2a10', trail: 'rgba(255,60,20,0.6)' },
+      { head: '#ffdf6a', glow: '#ffd23a', trail: 'rgba(255,210,80,0.55)' },
+      { head: '#ff5ad0', glow: '#c020ff', trail: 'rgba(220,60,255,0.5)' },
+    ] },
+  ];
+  function pickMissileLook(stage) {
+    const s = Math.max(1, Math.floor(stage));
+    for (const p of MISSILE_PALETTES) {
+      if (s <= p.max) return p.looks[Math.floor(Math.random() * p.looks.length)];
+    }
+    const last = MISSILE_PALETTES[MISSILE_PALETTES.length - 1];
+    return last.looks[Math.floor(Math.random() * last.looks.length)];
+  }
 
   // Stage 1: baseline missile spawn rate (unchanged from the original tuning).
   // Stage 2: noticeably faster spawn rate, occasional simultaneous missiles, higher target.
@@ -163,20 +201,18 @@ function createSkyDefenseLevel(api) {
     const target = pickMissileTarget();
     const speed = stageSpeedBase + Math.random() * stageSpeedVar + Math.min(stageSpeedRampCap, elapsed * 1.1 + kills * 0.6);
     const ang = Math.atan2(target.y - 0, target.x - startX);
+    const look = pickMissileLook(currentStage);
+    // Later stages get slightly longer visible trails — pure visual density,
+    // does not affect collision, speed, or spawn timing.
+    const trailMax = Math.min(16, 10 + Math.floor(Math.max(1, currentStage) / 2));
     missiles.push({
       x: startX, y: 0,
       vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed,
       targetX: target.x, targetY: target.y, cityIndex: target.cityIndex,
-      trail: [], alive: true,
+      trail: [], trailMax, alive: true,
+      headColor: look.head, glowColor: look.glow, trailColor: look.trail,
+      smokeTimer: Math.random() * 0.08,
     });
-  }
-
-  function burst(list, x, y, color, n, spread) {
-    for (let i = 0; i < n; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const spd = spread * (0.4 + Math.random() * 0.9);
-      list.push({ x, y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, life: 0.5, color });
-    }
   }
 
   return {
@@ -197,13 +233,16 @@ function createSkyDefenseLevel(api) {
       fireCooldown = 0;
       interceptors = [];
       blasts = [];
+      groundBlasts = [];
       missiles = [];
-      particles = [];
       impacts = [];
       spawnTimer = 1.2;
       elapsed = 0;
       kills = 0;
       nextSurvivalBonusAt = SURVIVAL_BONUS_STEP;
+      flashTimer = 0;
+      fxParticles.clear();
+      fxFloatText.clear();
     },
 
     update(dt) {
@@ -259,9 +298,22 @@ function createSkyDefenseLevel(api) {
       missiles.forEach((ms) => {
         if (!ms.alive) return;
         ms.trail.push({ x: ms.x, y: ms.y });
-        if (ms.trail.length > 10) ms.trail.shift();
+        if (ms.trail.length > ms.trailMax) ms.trail.shift();
         ms.x += ms.vx * dt;
         ms.y += ms.vy * dt;
+        // Thin fading smoke streak trailing every falling missile.
+        ms.smokeTimer -= dt;
+        if (ms.smokeTimer <= 0) {
+          ms.smokeTimer = 0.09 + Math.random() * 0.06;
+          fxParticles.spawn(ms.x, ms.y, {
+            vx: -ms.vx * 0.06 + (Math.random() - 0.5) * 8,
+            vy: -ms.vy * 0.06 + (Math.random() - 0.5) * 8,
+            gravity: -8,
+            life: 0.35 + Math.random() * 0.25,
+            size: 2 + Math.random() * 2,
+            color: 'rgba(170,170,180,0.4)',
+          });
+        }
       });
 
       // interception check
@@ -272,8 +324,14 @@ function createSkyDefenseLevel(api) {
             ms.alive = false;
             kills++;
             const earlyBonus = Math.round((1 - Math.max(0, ms.y) / GROUND_Y) * 50);
-            addScore(100 + earlyBonus);
-            burst(particles, ms.x, ms.y, '#ffb84f', 10, 140);
+            const gained = 100 + earlyBonus;
+            addScore(gained);
+            fxParticles.burst(ms.x, ms.y, 10, {
+              colors: ['#fff2c0', '#ffe38a', '#ffb84f', '#ff6a3a'],
+              speedMin: 60, speedMax: 220, lifeMin: 0.25, lifeMax: 0.55,
+              sizeMin: 2, sizeMax: 4, gravity: 120,
+            });
+            fxFloatText.spawn(ms.x, ms.y - 6, `+${gained}`, '#ffe38a', { life: 0.7, vy: -46, size: 11 });
             sfx('explosion');
             shake(0.12, 3);
             if (kills >= nextSurvivalBonusAt) {
@@ -296,9 +354,16 @@ function createSkyDefenseLevel(api) {
           const city = ms.cityIndex >= 0 ? cities[ms.cityIndex] : null;
           if (city && city.alive) {
             city.alive = false;
-            burst(particles, city.x + city.w / 2, city.y + city.h / 2, '#ff5c5c', 16, 180);
+            const cx = city.x + city.w / 2, cy = city.y + city.h / 2;
+            groundBlasts.push({ x: cx, y: cy, t: 0, life: 0.55, peak: BLAST_PEAK * 2.4 });
+            fxParticles.burst(cx, cy, 16, {
+              colors: ['#fff2c0', '#ffb84f', '#ff5c5c', '#55221a'],
+              speedMin: 80, speedMax: 260, lifeMin: 0.4, lifeMax: 0.9,
+              sizeMin: 3, sizeMax: 6, gravity: 200,
+            });
+            flashTimer = FLASH_DURATION;
             sfx('explosion');
-            shake(0.3, 6);
+            shake(0.35, 8);
             loseLife();
           } else {
             impacts.push({ x: ms.x, y: GROUND_Y, life: 0.35 });
@@ -308,10 +373,35 @@ function createSkyDefenseLevel(api) {
       });
       missiles = missiles.filter((ms) => ms.alive && ms.y < GROUND_Y + 4);
 
-      particles.forEach((p) => { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 220 * dt; p.life -= dt; });
-      particles = particles.filter((p) => p.life > 0);
       impacts.forEach((p) => { p.life -= dt; });
       impacts = impacts.filter((p) => p.life > 0);
+
+      // big ground-impact rings (city hits) grow then fade, same shape as the
+      // interceptor blasts but bigger/longer-lived
+      groundBlasts.forEach((b) => {
+        b.t += dt;
+        const frac = Math.min(1, b.t / b.life);
+        b.r = b.peak * Math.sin(Math.PI * frac);
+      });
+      groundBlasts = groundBlasts.filter((b) => b.t < b.life);
+
+      // faint embers drifting up from rubble — ambient life for dead cities
+      cities.forEach((c) => {
+        if (!c.alive && Math.random() < dt * 0.7) {
+          fxParticles.spawn(c.x + Math.random() * c.w, c.y + c.h - 2, {
+            vx: (Math.random() - 0.5) * 6,
+            vy: -10 - Math.random() * 10,
+            gravity: -6,
+            life: 0.6 + Math.random() * 0.4,
+            size: 1.5 + Math.random() * 1.5,
+            color: 'rgba(255,140,60,0.5)',
+          });
+        }
+      });
+
+      fxParticles.update(dt);
+      fxFloatText.update(dt);
+      flashTimer = Math.max(0, flashTimer - dt);
 
       if (kills >= TARGET_KILLS) {
         const aliveCities = cities.filter((c) => c.alive).length;
@@ -343,6 +433,7 @@ function createSkyDefenseLevel(api) {
       ctx.strokeStyle = 'rgba(0,0,0,0.45)';
       ctx.lineWidth = 1;
       ctx.strokeRect(SILO_X + 0.5, siloTopY + 0.5, SILO_W - 1, H - siloTopY - 1);
+      FX.sphere(ctx, siloCx, siloTopY + 4, 7, '#7a8898');
       ctx.save();
       ctx.translate(siloCx, siloTopY + 4);
       const barrelAng = Math.atan2(crosshair.y - (siloTopY + 4), crosshair.x - siloCx);
@@ -368,8 +459,14 @@ function createSkyDefenseLevel(api) {
           for (let r = 0; r < rows; r++) {
             for (let cc = 0; cc < cols; cc++) {
               const lit = c.windows[wi] && Math.sin(t * 3 + wi) > -0.3;
+              if (lit) {
+                ctx.save();
+                ctx.shadowBlur = 4;
+                ctx.shadowColor = '#ffe38a';
+              }
               ctx.fillStyle = lit ? '#ffe38a' : 'rgba(20,20,30,0.6)';
               ctx.fillRect(c.x + ww * (cc + 0.6), c.y + wh * (r + 0.7), ww * 0.6, wh * 0.6);
+              if (lit) ctx.restore();
               wi++;
             }
           }
@@ -396,10 +493,10 @@ function createSkyDefenseLevel(api) {
         ctx.fill();
       });
 
-      // incoming missile trails + heads
+      // incoming missile trails + heads (color/variety picked per-missile at spawn)
       missiles.forEach((ms) => {
         ctx.save();
-        ctx.strokeStyle = 'rgba(255,110,60,0.5)';
+        ctx.strokeStyle = ms.trailColor;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ms.trail.forEach((pt, i) => {
@@ -408,8 +505,8 @@ function createSkyDefenseLevel(api) {
         ctx.lineTo(ms.x, ms.y);
         ctx.stroke();
         ctx.shadowBlur = 8;
-        ctx.shadowColor = '#ff6a3a';
-        ctx.fillStyle = '#ffb84f';
+        ctx.shadowColor = ms.glowColor;
+        ctx.fillStyle = ms.headColor;
         ctx.beginPath();
         ctx.arc(ms.x, ms.y, 2.6, 0, Math.PI * 2);
         ctx.fill();
@@ -453,13 +550,27 @@ function createSkyDefenseLevel(api) {
         ctx.fill();
       });
 
-      // debris particles
-      particles.forEach((p) => {
-        ctx.fillStyle = p.color;
-        ctx.globalAlpha = Math.max(0, p.life / 0.5);
-        ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
-        ctx.globalAlpha = 1;
+      // groundBlasts: much bigger explosion rings for city hits — bright
+      // white-hot core layered under a wider fireball skirt
+      groundBlasts.forEach((b) => {
+        if (b.r <= 0.5) return;
+        const frac = Math.min(1, b.t / b.life);
+        const alpha = Math.max(0, 1 - frac * 0.65);
+        const grad = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, b.r);
+        grad.addColorStop(0, `rgba(255,255,255,${alpha})`);
+        grad.addColorStop(0.25, `rgba(255,240,200,${alpha * 0.95})`);
+        grad.addColorStop(0.55, `rgba(255,160,60,${alpha * 0.75})`);
+        grad.addColorStop(0.8, `rgba(255,70,30,${alpha * 0.4})`);
+        grad.addColorStop(1, 'rgba(200,20,10,0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+        ctx.fill();
       });
+
+      // shared particle/float-text FX (explosion debris, smoke, embers, score pops)
+      fxParticles.draw(ctx);
+      fxFloatText.draw(ctx);
 
       // crosshair reticle
       const pulse = 1 + 0.08 * Math.sin(t * 6);
@@ -490,6 +601,11 @@ function createSkyDefenseLevel(api) {
       const citiesAlive = cities.filter((c) => c.alive).length;
       ctx.fillStyle = citiesAlive === 3 ? '#6bff6b' : citiesAlive > 0 ? '#ffd24f' : '#ff5c5c';
       ctx.fillText(`CITIES ${citiesAlive}/3`, W - 70, 16);
+
+      // hit-stun flash wash for a city loss — brief, on top of everything
+      if (flashTimer > 0) {
+        FX.flash(ctx, W, H, flashColor, (flashTimer / FLASH_DURATION) * 0.35);
+      }
     },
   };
 }

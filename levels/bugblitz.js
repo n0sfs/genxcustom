@@ -46,7 +46,13 @@ function createBugBlitzLevel(api) {
   }
 
   let player, bullets, mushrooms, chains, prevKeys;
-  let shotCooldown, destroyedTotal, waveCount, particles, popups, hitFlash;
+  let shotCooldown, destroyedTotal, waveCount, hitFlash;
+  let levelTime = 0;
+  let motes = [];
+
+  // Level-instance-scoped juice systems — created once, cleared per stage.
+  const fxParticles = FX.makeParticles(160);
+  const fxFloatText = FX.makeFloatText(40);
 
   // Stage 1: baseline density/length/speed (unchanged from the original tuning).
   // Stage 2: denser field, longer centipede, faster stepping.
@@ -122,7 +128,7 @@ function createBugBlitzLevel(api) {
       const density = row >= FIELD_ROWS - 2 ? MUSH_DENSITY_BOTTOM : MUSH_DENSITY_TOP;
       for (let col = 0; col < FIELD_COLS; col++) {
         if (Math.random() < density) {
-          mushrooms.push({ row, col, hp: 2 });
+          mushrooms.push({ row, col, hp: 2, squish: 0, swaySeed: Math.random() * Math.PI * 2 });
         }
       }
     }
@@ -178,12 +184,74 @@ function createBugBlitzLevel(api) {
     }
   }
 
-  function burst(x, y, color) {
-    for (let i = 0; i < 8; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const spd = 50 + Math.random() * 130;
-      particles.push({ x, y, vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, life: 0.32, color });
+  // Ambient dust/pollen motes drifting through the garden — pure decoration.
+  function spawnMotes() {
+    const list = [];
+    for (let i = 0; i < 22; i++) {
+      list.push({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        vx: (Math.random() - 0.5) * 8,
+        vy: 6 + Math.random() * 10,
+        r: 0.6 + Math.random() * 1.4,
+        phase: Math.random() * Math.PI * 2,
+      });
     }
+    return list;
+  }
+
+  // Bug-guts debris burst when a centipede segment is shot — arcade-cute, not gory.
+  function bugBurst(x, y, color) {
+    fxParticles.burst(x, y, 9, {
+      colors: [color, FX.shade(color, 30), '#eafcd8'],
+      speedMin: 50, speedMax: 150, lifeMin: 0.25, lifeMax: 0.5,
+      sizeMin: 2, sizeMax: 4, gravity: 90,
+    });
+  }
+
+  // A brighter little spark marking the chain physically splitting in two.
+  function splitPuff(x, y) {
+    fxParticles.burst(x, y, 6, {
+      colors: ['#ffffff', '#ffe89a'],
+      speedMin: 90, speedMax: 190, lifeMin: 0.15, lifeMax: 0.3,
+      sizeMin: 1.5, sizeMax: 3, gravity: 0,
+    });
+  }
+
+  // Puff when a fresh mushroom pops up out of a killed segment's cell.
+  function mushroomPopPuff(x, y) {
+    fxParticles.burst(x, y, 7, {
+      colors: [MUSHROOM_COLOR, '#ffd7e2'],
+      speedMin: 20, speedMax: 70, lifeMin: 0.25, lifeMax: 0.45,
+      sizeMin: 2, sizeMax: 3.5, gravity: -40,
+    });
+  }
+
+  // Mushroom debris when hit by a bullet.
+  function mushroomHitBurst(x, y, color) {
+    fxParticles.burst(x, y, 6, {
+      colors: [color, '#fff'],
+      speedMin: 30, speedMax: 100, lifeMin: 0.2, lifeMax: 0.4,
+      sizeMin: 1.5, sizeMax: 3, gravity: 60,
+    });
+  }
+
+  // Quick spark at the gun tip when firing.
+  function muzzleFlash(x, y) {
+    fxParticles.burst(x, y, 4, {
+      colors: ['#fff6c8', '#ffd24f'],
+      speedMin: 40, speedMax: 90, lifeMin: 0.08, lifeMax: 0.14,
+      sizeMin: 1.5, sizeMax: 3, angle: -Math.PI / 2, spread: 0.9, gravity: 0,
+    });
+  }
+
+  // Sparks when a bug crashes into the player turret.
+  function playerHitBurst(x, y) {
+    fxParticles.burst(x, y, 12, {
+      colors: ['#ff5c5c', '#ffae5c', '#fff'],
+      speedMin: 60, speedMax: 200, lifeMin: 0.3, lifeMax: 0.6,
+      sizeMin: 2, sizeMax: 4, gravity: 200,
+    });
   }
 
   function splitChainAt(chainIdx, segIdx) {
@@ -214,9 +282,11 @@ function createBugBlitzLevel(api) {
       shotCooldown = 0;
       destroyedTotal = 0;
       waveCount = 0;
-      particles = [];
-      popups = [];
       hitFlash = 0;
+      levelTime = 0;
+      fxParticles.clear();
+      fxFloatText.clear();
+      motes = spawnMotes();
       spawnMushroomField();
       chains = [];
       for (let i = 0; i < INITIAL_CHAINS; i++) {
@@ -227,6 +297,7 @@ function createBugBlitzLevel(api) {
     update(dt) {
       shotCooldown = Math.max(0, shotCooldown - dt);
       hitFlash = Math.max(0, hitFlash - dt);
+      levelTime += dt;
 
       if (isDown('ArrowLeft', 'a')) player.x -= PLAYER_SPEED * dt;
       if (isDown('ArrowRight', 'd')) player.x += PLAYER_SPEED * dt;
@@ -236,6 +307,7 @@ function createBugBlitzLevel(api) {
         bullets.push({ x: player.x + player.w / 2 - 2, y: player.y - 6, w: 4, h: 10 });
         shotCooldown = SHOT_COOLDOWN;
         sfx('shoot');
+        muzzleFlash(player.x + player.w / 2, player.y - 6);
       }
 
       bullets.forEach((b) => (b.y -= BULLET_SPEED * dt));
@@ -250,12 +322,14 @@ function createBugBlitzLevel(api) {
           if (rectsOverlap(b, rect)) {
             b.hit = true;
             m.hp -= 1;
+            m.squish = 0.18;
             addScore(2);
             sfx('hit');
-            burst(c.x, c.y, MUSHROOM_COLOR);
+            mushroomHitBurst(c.x, c.y, m.hp >= 2 ? MUSHROOM_COLOR : MUSHROOM_DAMAGED);
             if (m.hp <= 0) {
               m.dead = true;
               addScore(3);
+              fxFloatText.spawn(c.x, c.y - 4, '+3', '#ffd7e2', { size: 11, life: 0.6, vy: -30 });
             }
             break;
           }
@@ -277,13 +351,20 @@ function createBugBlitzLevel(api) {
               b.hit = true;
               const isHead = si === 0;
               destroyedTotal += 1;
-              addScore(isHead ? 100 : 10);
+              const points = isHead ? 100 : 10;
+              addScore(points);
               sfx(isHead ? 'explosion' : 'hit');
               if (isHead) shake(0.1, 3);
-              burst(c.x, c.y, isHead ? HEAD_COLOR : BODY_COLORS[chain.colorSeed]);
-              popups.push({ x: c.x, y: c.y, text: `+${isHead ? 100 : 10}`, life: 0.8 });
+              bugBurst(c.x, c.y, isHead ? HEAD_COLOR : BODY_COLORS[chain.colorSeed]);
+              splitPuff(c.x, c.y);
+              fxFloatText.spawn(c.x, c.y - 6, `+${points}`, isHead ? HEAD_COLOR : '#eafcd8', {
+                size: isHead ? 20 : 13,
+                life: isHead ? 1.0 : 0.7,
+                vy: isHead ? -55 : -42,
+              });
               if (!mushroomAt(seg.row, seg.col)) {
-                mushrooms.push({ row: seg.row, col: seg.col, hp: 2 });
+                mushrooms.push({ row: seg.row, col: seg.col, hp: 2, squish: 0.2, swaySeed: Math.random() * Math.PI * 2 });
+                mushroomPopPuff(c.x, c.y);
               }
               splitChainAt(ci, si);
               break outer;
@@ -310,6 +391,8 @@ function createBugBlitzLevel(api) {
           const rect = { x: c.x - CELL_W / 2 + 4, y: c.y - CELL_H / 2 + 3, w: CELL_W - 8, h: CELL_H - 6 };
           if (rectsOverlap(rect, player)) {
             hitFlash = 0.4;
+            playerHitBurst(player.x + player.w / 2, player.y + player.h / 2);
+            shake(0.18, 5);
             loseLife();
             return;
           }
@@ -326,10 +409,18 @@ function createBugBlitzLevel(api) {
         return;
       }
 
-      particles.forEach((p) => { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; });
-      particles = particles.filter((p) => p.life > 0);
-      popups.forEach((p) => { p.y -= 26 * dt; p.life -= dt; });
-      popups = popups.filter((p) => p.life > 0);
+      mushrooms.forEach((m) => { if (m.squish > 0) m.squish = Math.max(0, m.squish - dt); });
+
+      motes.forEach((mo) => {
+        mo.x += mo.vx * dt;
+        mo.y += mo.vy * dt;
+        if (mo.y > H + 4) { mo.y = -4; mo.x = Math.random() * W; }
+        if (mo.x < -4) mo.x = W + 4;
+        if (mo.x > W + 4) mo.x = -4;
+      });
+
+      fxParticles.update(dt);
+      fxFloatText.update(dt);
     },
 
     draw(ctx) {
@@ -347,14 +438,40 @@ function createBugBlitzLevel(api) {
         ctx.stroke();
       }
 
+      // ambient drifting pollen/dust
+      ctx.save();
+      motes.forEach((mo) => {
+        const tw = 0.5 + 0.5 * Math.sin(levelTime * 2 + mo.phase);
+        ctx.globalAlpha = 0.15 + tw * 0.2;
+        ctx.fillStyle = '#eaffb0';
+        ctx.beginPath();
+        ctx.arc(mo.x, mo.y, mo.r, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.restore();
+
       // mushrooms
       mushrooms.forEach((m) => {
         const c = cellCenter(m.col, m.row);
-        const w = CELL_W - 8, h = CELL_H - 6;
-        const x = c.x - w / 2, y = c.y - h / 2;
+        const sway = Math.sin(levelTime * 1.4 + (m.swaySeed || 0)) * 0.8;
+        const squishT = m.squish > 0 ? m.squish / 0.2 : 0;
+        const baseW = CELL_W - 8, baseH = CELL_H - 6;
+        const w = baseW * (1 + squishT * 0.18);
+        const h = baseH * (1 - squishT * 0.22);
+        const x = c.x - w / 2 + sway, y = c.y - h / 2 + baseH * squishT * 0.11;
         const color = m.hp >= 2 ? MUSHROOM_COLOR : MUSHROOM_DAMAGED;
-        FX.shadow(ctx, c.x, c.y + h / 2 + 1, w / 2, 3, 0.25);
+        FX.shadow(ctx, c.x, c.y + baseH / 2 + 1, w / 2, 3, 0.25);
         FX.bevelBlock(ctx, x, y, w, h, color, 4);
+        // domed cap highlight for a rounder, more 3D read
+        ctx.save();
+        FX.roundRectPath(ctx, x, y, w, h, 4);
+        ctx.clip();
+        const cap = ctx.createRadialGradient(x + w * 0.35, y + h * 0.25, 1, x + w * 0.35, y + h * 0.25, w * 0.7);
+        cap.addColorStop(0, 'rgba(255,255,255,0.5)');
+        cap.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = cap;
+        ctx.fillRect(x, y, w, h);
+        ctx.restore();
         ctx.strokeStyle = 'rgba(0,0,0,0.45)';
         ctx.lineWidth = 1;
         FX.roundRectPath(ctx, x, y, w, h, 4);
@@ -362,19 +479,36 @@ function createBugBlitzLevel(api) {
         // spots for texture
         ctx.fillStyle = 'rgba(255,255,255,0.55)';
         ctx.beginPath();
-        ctx.arc(c.x - w * 0.18, c.y - h * 0.12, 1.6, 0, Math.PI * 2);
-        ctx.arc(c.x + w * 0.2, c.y + h * 0.08, 1.3, 0, Math.PI * 2);
+        ctx.arc(c.x - w * 0.18 + sway, c.y - h * 0.12, 1.6, 0, Math.PI * 2);
+        ctx.arc(c.x + w * 0.2 + sway, c.y + h * 0.08, 1.3, 0, Math.PI * 2);
         ctx.fill();
       });
 
       // centipede chains
       chains.forEach((chain) => {
+        // connective "shell" strokes drawn first so segments read as one linked
+        // chain rather than loose floating balls.
+        ctx.lineCap = 'round';
+        for (let i = 1; i < chain.segments.length; i++) {
+          const a = cellCenter(chain.segments[i - 1].col, chain.segments[i - 1].row);
+          const b = cellCenter(chain.segments[i].col, chain.segments[i].row);
+          const linkColor = FX.shade(BODY_COLORS[(i + chain.colorSeed) % BODY_COLORS.length], -45);
+          ctx.strokeStyle = linkColor;
+          ctx.lineWidth = 9;
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+        }
+
         for (let i = chain.segments.length - 1; i >= 0; i--) {
           const seg = chain.segments[i];
           const c = cellCenter(seg.col, seg.row);
           const isHead = i === 0;
           const r = isHead ? 11 : 9;
-          const color = isHead ? HEAD_COLOR : BODY_COLORS[(i + chain.colorSeed) % BODY_COLORS.length];
+          const baseColor = isHead ? HEAD_COLOR : BODY_COLORS[(i + chain.colorSeed) % BODY_COLORS.length];
+          // subtle alternating plate shading so the body reads as segmented armor.
+          const color = isHead ? baseColor : FX.shade(baseColor, i % 2 === 0 ? 6 : -8);
           FX.shadow(ctx, c.x, c.y + r * 0.7, r * 0.9, 2.5, 0.25);
           FX.sphere(ctx, c.x, c.y, r, color);
           ctx.strokeStyle = 'rgba(0,0,0,0.5)';
@@ -382,6 +516,17 @@ function createBugBlitzLevel(api) {
           ctx.beginPath();
           ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
           ctx.stroke();
+          if (!isHead) {
+            // tiny leg ticks for that classic centipede silhouette
+            ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(c.x - r * 0.8, c.y + r * 0.5);
+            ctx.lineTo(c.x - r * 1.25, c.y + r * 0.95);
+            ctx.moveTo(c.x + r * 0.8, c.y + r * 0.5);
+            ctx.lineTo(c.x + r * 1.25, c.y + r * 0.95);
+            ctx.stroke();
+          }
           if (isHead) {
             ctx.fillStyle = '#1a1a1a';
             ctx.beginPath();
@@ -402,18 +547,31 @@ function createBugBlitzLevel(api) {
         }
       });
 
-      // player turret
+      // player turret — small idle bob so it never sits perfectly still
+      const idleBob = Math.sin(levelTime * 5) * 0.8;
       const turretColor = hitFlash > 0 && Math.floor(hitFlash * 20) % 2 === 0 ? '#ff5c5c' : '#4fe3d0';
+      const turretY = player.y + idleBob * 0.4;
       FX.shadow(ctx, player.x + player.w / 2, player.y + player.h + 3, player.w / 2, 3, 0.3);
-      FX.bevelBlock(ctx, player.x, player.y, player.w, player.h, turretColor, 3);
+      FX.bevelBlock(ctx, player.x, turretY, player.w, player.h, turretColor, 3);
       ctx.strokeStyle = 'rgba(0,0,0,0.5)';
       ctx.lineWidth = 1.2;
-      FX.roundRectPath(ctx, player.x, player.y, player.w, player.h, 3);
+      FX.roundRectPath(ctx, player.x, turretY, player.w, player.h, 3);
       ctx.stroke();
+      const barrelY = turretY - 6 + idleBob;
       ctx.fillStyle = FX.shade(turretColor, -20);
-      ctx.fillRect(player.x + player.w / 2 - 2, player.y - 6, 4, 8);
+      ctx.fillRect(player.x + player.w / 2 - 2, barrelY, 4, 8);
       ctx.strokeStyle = 'rgba(0,0,0,0.45)';
-      ctx.strokeRect(player.x + player.w / 2 - 2, player.y - 6, 4, 8);
+      ctx.strokeRect(player.x + player.w / 2 - 2, barrelY, 4, 8);
+      // faint muzzle glow right after firing
+      if (shotCooldown > SHOT_COOLDOWN * 0.6) {
+        ctx.save();
+        ctx.globalAlpha = (shotCooldown / SHOT_COOLDOWN - 0.6) / 0.4;
+        ctx.fillStyle = '#fff6c8';
+        ctx.beginPath();
+        ctx.arc(player.x + player.w / 2, barrelY, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
 
       // bullets
       ctx.save();
@@ -423,26 +581,18 @@ function createBugBlitzLevel(api) {
       bullets.forEach((b) => ctx.fillRect(b.x, b.y, b.w, b.h));
       ctx.restore();
 
-      particles.forEach((p) => {
-        ctx.fillStyle = p.color;
-        ctx.globalAlpha = Math.max(0, p.life / 0.32);
-        ctx.fillRect(p.x - 2, p.y - 2, 4, 4);
-        ctx.globalAlpha = 1;
-      });
-
-      ctx.font = '10px monospace';
-      ctx.textAlign = 'center';
-      popups.forEach((p) => {
-        ctx.fillStyle = '#ffd24f';
-        ctx.globalAlpha = Math.max(0, p.life / 0.8);
-        ctx.fillText(p.text, p.x, p.y);
-        ctx.globalAlpha = 1;
-      });
+      fxParticles.draw(ctx);
+      fxFloatText.draw(ctx);
       ctx.textAlign = 'left';
 
       ctx.fillStyle = '#e8ecff';
       ctx.font = '9px monospace';
       ctx.fillText(`SEGMENTS ${destroyedTotal}/${TARGET_DESTROYED}`, 8, H - 6);
+
+      // hit-stun wash + CRT cabinet finish
+      if (hitFlash > 0) FX.flash(ctx, W, H, '#ff2b2b', Math.min(0.35, hitFlash * 0.6));
+      FX.vignette(ctx, W, H, 0.32);
+      FX.scanlines(ctx, W, H, 0.05);
     },
   };
 }
