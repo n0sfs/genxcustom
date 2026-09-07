@@ -265,7 +265,7 @@ function createSkyDefenseLevel(api) {
       // coexist without a fight — whichever was used most recently wins,
       // since a d-pad press on the very next frame will immediately move
       // the crosshair away from wherever the mouse last placed it.
-      if (typeof api.mouseX === 'number' && typeof api.mouseY === 'number' &&
+      if (api.mouseActive && typeof api.mouseX === 'number' && typeof api.mouseY === 'number' &&
           api.mouseX >= 0 && api.mouseX <= W && api.mouseY >= 0 && api.mouseY <= H) {
         crosshair.x = Math.max(6, Math.min(W - 6, api.mouseX));
         crosshair.y = Math.max(6, Math.min(H - 6, api.mouseY));

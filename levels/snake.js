@@ -501,7 +501,7 @@ function createSnakeLevel(api) {
       else if (keyLeft && dir.x !== 1) nextDir = { x: -1, y: 0 };
       else if (keyDown && dir.y !== -1) nextDir = { x: 0, y: 1 };
       else if (keyUp && dir.y !== 1) nextDir = { x: 0, y: -1 };
-      else if (!keyRight && !keyLeft && !keyDown && !keyUp) {
+      else if (!keyRight && !keyLeft && !keyDown && !keyUp && api.mouseActive) {
         // Mouse-follow steering (classic mobile snake): with no keyboard/
         // touch d-pad direction held this frame, derive a turn candidate
         // from the vector between the snake head and the live cursor

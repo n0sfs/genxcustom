@@ -481,7 +481,7 @@ function createBreakoutLevel(api) {
       const keyRight = isDown('ArrowRight', 'd');
       if (keyLeft) paddle.x -= paddle.speed * dt;
       if (keyRight) paddle.x += paddle.speed * dt;
-      if (!keyLeft && !keyRight) paddle.x = api.mouseX - paddle.w / 2;
+      if (!keyLeft && !keyRight && api.mouseActive) paddle.x = api.mouseX - paddle.w / 2;
       paddle.x = Math.max(0, Math.min(W - paddle.w, paddle.x));
 
       // ball speed creeps up as the wall clears out, for an escalating arcade pace;

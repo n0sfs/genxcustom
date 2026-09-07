@@ -509,7 +509,7 @@ function createTetrisLevel(api) {
       // key would produce, it just doesn't need the key held.
       const mouseTargetCol = Math.max(0, Math.min(COLS - 1, Math.floor((api.mouseX - BOARD_X) / CELL)));
       const pieceCol = Math.round(pieceCenterCol(piece));
-      if (mouseTargetCol !== pieceCol) {
+      if (api.mouseActive && mouseTargetCol !== pieceCol) {
         mouseMoveTimer += dt;
         if (mouseMoveTimer > MOUSE_MOVE_INTERVAL) {
           mouseMoveTimer = 0;

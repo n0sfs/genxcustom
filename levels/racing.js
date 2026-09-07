@@ -351,9 +351,12 @@ function createRacingLevel(api) {
       const keyRight = isDown('ArrowRight', 'd');
       if (keyLeft) player.vx = -moveSpeed;
       if (keyRight) player.vx = moveSpeed;
-      if (keyLeft || keyRight) {
+      if (keyLeft || keyRight || !api.mouseActive) {
         // Active keyboard/touch input always wins for this frame — nudge the
-        // player directly at the normal move speed, same as before.
+        // player directly at the normal move speed, same as before. Also
+        // falls back here (no-op, vx already 0) while the mouse has never
+        // actually been touched, so a keyboard-only player never gets
+        // yanked toward the default center-of-canvas mouse coordinate.
         player.x += player.vx * dt;
       } else {
         // No directional key/touch held: ease the car's center toward the

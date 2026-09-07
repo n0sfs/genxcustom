@@ -302,7 +302,7 @@ function createBugBlitzLevel(api) {
       const keyboardActive = isDown('ArrowLeft', 'a') || isDown('ArrowRight', 'd');
       if (isDown('ArrowLeft', 'a')) player.x -= PLAYER_SPEED * dt;
       if (isDown('ArrowRight', 'd')) player.x += PLAYER_SPEED * dt;
-      if (!keyboardActive && typeof api.mouseX === 'number') {
+      if (!keyboardActive && api.mouseActive && typeof api.mouseX === 'number') {
         // Follow the mouse cursor at the same max speed the keyboard uses,
         // easing toward it rather than teleporting instantly.
         const targetX = api.mouseX - player.w / 2;

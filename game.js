@@ -295,7 +295,13 @@ const Game = (() => {
   // "click = action button" works in every game for free; each level reads
   // raw position/press state via the api to decide its own genre-appropriate
   // mapping (paddle follows cursor, reticle aims, click-and-hold to move...).
-  const mouse = { x: W / 2, y: H / 2, down: false };
+  // `active` stays false until the player's real mouse actually moves or
+  // clicks, so levels that read mouseX/mouseY to drive position (paddle
+  // follow, reticle aim, etc.) can tell "mouse genuinely idle" apart from
+  // "cursor happens to be at the W/2,H/2 default" - without this, a
+  // keyboard/touch-only player would see their paddle/piece/player yanked
+  // toward canvas-center the instant they let go of a direction key.
+  const mouse = { x: W / 2, y: H / 2, down: false, active: false };
   function toCanvasSpace(e) {
     const rect = canvas.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * W;
@@ -306,6 +312,7 @@ const Game = (() => {
     const p = toCanvasSpace(e);
     mouse.x = p.x;
     mouse.y = p.y;
+    mouse.active = true;
   });
   canvas.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
@@ -314,6 +321,7 @@ const Game = (() => {
     mouse.x = p.x;
     mouse.y = p.y;
     mouse.down = true;
+    mouse.active = true;
     window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }));
   });
   window.addEventListener('mouseup', (e) => {
@@ -526,6 +534,7 @@ const Game = (() => {
     get mouseX() { return mouse.x; },
     get mouseY() { return mouse.y; },
     get mouseDown() { return mouse.down; },
+    get mouseActive() { return mouse.active; },
   };
 
   function loop(t) {
