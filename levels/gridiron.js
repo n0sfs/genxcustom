@@ -28,6 +28,20 @@ function createGridironLevel(api) {
   const POST_TACKLE_GRACE = 0.75;
   const WIND_PUSH = 16;
 
+  // ---- Passing: tap Space for the juke (unchanged), hold-and-release to
+  // throw to your one receiver instead - a single button can't cycle
+  // multiple receivers the way a real NES pad's A/B combo could, so this
+  // keeps the same "one button" control scheme (keyboard/mouse/touch all
+  // press-and-hold identically) while still capturing Tecmo Bowl's core
+  // pass tension: receivers are always caught when open, but a covered
+  // throw risks an interception - so don't force a bad read. ----
+  const RECEIVER_R = 8.5;
+  const ROUTE_SPEED = 132;
+  const COVERAGE_RADIUS = 42;
+  const PASS_HOLD_THRESHOLD = 0.16;
+  const PASS_FLIGHT_SPEED = 400;
+  const INTERCEPT_CHANCE_COVERED = 0.7;
+
   function normalize(x, y) {
     const len = Math.hypot(x, y) || 1;
     return { dx: x / len, dy: y / len };
@@ -96,6 +110,7 @@ function createGridironLevel(api) {
   let cfg, theme, fieldLength, totalDowns, downsLeft, currentLOS;
   let player, defenders, trail, prevSpace, weatherParticles;
   let cameraX, elapsed, standPulse, screenFlash, dustTimer, celebrating;
+  let receiver, ball, passCharging, spaceHoldTimer;
 
   function popup(x, y, text, color, size) {
     floatText.spawn(x, y, text, color, { life: 0.9, vy: -30, size: size || 11 });
@@ -124,6 +139,56 @@ function createGridironLevel(api) {
     return list;
   }
 
+  // Runs the receiver's route and the defenders' pursuit AI - shared by the
+  // normal live-play path and the ball-in-flight path, so a thrown ball's
+  // coverage keeps evolving for the ~0.2-0.4s it's actually in the air
+  // instead of being locked in at the moment of release.
+  function updateFieldActors(dt) {
+    if (receiver && receiver.active) {
+      receiver.x += ROUTE_SPEED * theme.slow * dt;
+      receiver.x = clamp(receiver.x, currentLOS - 10, fieldLength + ENDZONE_DEPTH - 10);
+      receiver.runPhase += dt * 12;
+    }
+
+    // defender pursuit AI: limited turn rate + brief reaction lag keeps
+    // gaps readable instead of homing perfectly onto the player. Each
+    // defender dynamically peels off toward whichever of the runner or the
+    // receiver is currently closer - simple emergent coverage without
+    // needing dedicated man-to-man assignment logic.
+    defenders.forEach((d) => {
+      if (!d.alive) return;
+      d.bob += dt * 6;
+      if (d.reaction > 0) {
+        d.reaction -= dt;
+        d.x += Math.cos(d.angle) * d.speed * 0.25 * dt;
+        d.y += Math.sin(d.angle) * d.speed * 0.25 * dt;
+        return;
+      }
+      let targetX = player.x, targetY = player.y;
+      if (receiver && receiver.active) {
+        const dPlayer = Math.hypot(player.x - d.x, player.y - d.y);
+        const dReceiver = Math.hypot(receiver.x - d.x, receiver.y - d.y);
+        if (dReceiver < dPlayer) { targetX = receiver.x; targetY = receiver.y; }
+      }
+      const desired = Math.atan2(targetY - d.y, targetX - d.x);
+      const diff = angleDiff(desired, d.angle);
+      const maxTurn = d.turnRate * dt;
+      d.angle += clamp(diff, -maxTurn, maxTurn);
+      d.x += Math.cos(d.angle) * d.speed * dt;
+      d.y += Math.sin(d.angle) * d.speed * dt;
+      d.y = clamp(d.y, FIELD_TOP + DEFENDER_R, FIELD_BOTTOM - DEFENDER_R);
+    });
+
+    if (receiver && receiver.active) {
+      let openNow = true;
+      for (const d of defenders) {
+        if (!d.alive) continue;
+        if (Math.hypot(d.x - receiver.x, d.y - receiver.y) < COVERAGE_RADIUS) { openNow = false; break; }
+      }
+      receiver.open = openNow;
+    }
+  }
+
   function startDown() {
     player.x = currentLOS;
     player.y = FIELD_CY + (Math.random() - 0.5) * 40;
@@ -134,7 +199,83 @@ function createGridironLevel(api) {
     player.facing = { dx: 1, dy: 0 };
     trail = [];
     defenders = spawnDefenders();
+    // receiver splits out to whichever sideline the player didn't start
+    // near, and runs a simple straight go-route downfield.
+    receiver = {
+      x: currentLOS,
+      y: player.y > FIELD_CY ? FIELD_TOP + 26 : FIELD_BOTTOM - 26,
+      w: RECEIVER_R,
+      active: true,
+      open: true,
+      runPhase: 0,
+    };
+    ball = { mode: 'carried', t: 0, duration: 0, fromX: 0, fromY: 0, toX: 0, toY: 0, arc: 0, pendingYards: 0 };
+    passCharging = false;
+    spaceHoldTimer = 0;
     sfx('select');
+  }
+
+  // Kick off a throw: the ball leaves the player's hands immediately and
+  // flies toward wherever the receiver is RIGHT NOW, but the actual
+  // completion/coverage check happens when it arrives (resolvePass), not
+  // at the moment of release - exactly like a real pass, the receiver (and
+  // his coverage) keeps moving during the ball's flight.
+  function startPass() {
+    if (!receiver || !receiver.active) return;
+    const dist = Math.hypot(receiver.x - player.x, receiver.y - player.y);
+    ball.mode = 'inflight';
+    ball.t = 0;
+    ball.duration = Math.max(0.18, dist / PASS_FLIGHT_SPEED);
+    ball.fromX = player.x; ball.fromY = player.y;
+    ball.arc = 14 + dist * 0.12;
+    sfx('bounce');
+  }
+
+  // Called the instant the in-flight ball arrives. Coverage is judged at
+  // THIS moment (not at release), and a completion always finds the
+  // receiver wherever his route has taken him since the throw.
+  function resolvePass() {
+    if (!receiver.active) return;
+    const yardsGained = Math.max(0, Math.round((receiver.x - ball.fromX) / YARD_PX));
+    if (receiver.open) {
+      sfx('coin');
+      shake(0.1, 2);
+      const bonus = yardsGained * 3;
+      addScore(bonus);
+      popup(receiver.x, receiver.y - 16, `PASS COMPLETE! +${bonus}`, '#4fe3d0', 12);
+      hitFx.burst(receiver.x, receiver.y, 18, {
+        colors: ['#4fe3d0', '#ffffff', '#ffd24f'], speedMin: 60, speedMax: 200, lifeMin: 0.25, lifeMax: 0.5,
+        sizeMin: 1.5, sizeMax: 3.5, gravity: 80,
+      });
+      player.x = receiver.x;
+      player.y = receiver.y;
+      player.grace = POST_TACKLE_GRACE;
+      player.facing = { dx: 1, dy: 0 };
+      receiver.active = false;
+      ball.mode = 'carried';
+    } else if (Math.random() < INTERCEPT_CHANCE_COVERED) {
+      sfx('hit');
+      shake(0.28, 6);
+      popup(receiver.x, receiver.y - 16, 'INTERCEPTED!', '#ff5c5c', 13);
+      hitFx.burst(receiver.x, receiver.y, 22, {
+        colors: ['#ff5c5c', '#ffffff', '#3a3a42'], speedMin: 70, speedMax: 220, lifeMin: 0.25, lifeMax: 0.5,
+        sizeMin: 1.5, sizeMax: 3.5, gravity: 100,
+      });
+      receiver.active = false;
+      loseLife();
+      return;
+    } else {
+      sfx('bounce');
+      popup(receiver.x, receiver.y - 16, 'INCOMPLETE', '#e8ecff', 11);
+      receiver.active = false;
+      downsLeft--;
+      if (downsLeft <= 0) {
+        loseLife();
+        return;
+      }
+      popup(player.x, player.y - 30, `DOWN ${totalDowns - downsLeft + 1}/${totalDowns}`, '#e8ecff', 10);
+      startDown();
+    }
   }
 
   // Self-contained, wrapping weather system (own array, not FX.makeParticles -
@@ -225,6 +366,21 @@ function createGridironLevel(api) {
         return;
       }
 
+      // While the ball is in the air, the player is frozen (you released
+      // the throw, now watch it resolve) but the receiver's route and the
+      // defenders' pursuit keep running live - coverage is judged the
+      // instant the ball arrives, not at the moment it left your hands.
+      if (ball.mode === 'inflight') {
+        updateFieldActors(dt);
+        prevSpace = isDown('Space'); // keep tracking so releasing mid-flight can't fire a phantom action once control resumes
+        ball.t += dt / ball.duration;
+        if (ball.t >= 1) {
+          ball.t = 1;
+          resolvePass();
+        }
+        return;
+      }
+
       // If we were tackled and downs remain, the next down is already primed
       // by startDown() below at the moment of the tackle - update() just runs
       // the current live down.
@@ -254,20 +410,40 @@ function createGridironLevel(api) {
         }
       }
 
+      // Tap Space for the juke; hold it and release to throw instead. Both
+      // live on the same button (keyboard/mouse/touch all press-and-hold
+      // identically) - a quick tap never has time to cross
+      // PASS_HOLD_THRESHOLD, so the juke still feels instant.
       const spacePressed = isDown('Space');
-      if (spacePressed && !prevSpace && player.jukeCooldown <= 0) {
-        player.jukeTimer = JUKE_DURATION;
-        player.jukeCooldown = JUKE_COOLDOWN;
-        player.jukeCloseCall = false;
-        sfx('coin');
-        shake(0.08, 1.5);
-        dustFx.burst(player.x, player.y + 6, 10, {
-          colors: ['#d8c090', '#c8a870'], speedMin: 40, speedMax: 140, lifeMin: 0.2, lifeMax: 0.4,
-          sizeMin: 2, sizeMax: 4, gravity: 60,
-        });
+      if (spacePressed && !prevSpace) {
+        passCharging = true;
+        spaceHoldTimer = 0;
+      }
+      if (spacePressed && passCharging) {
+        spaceHoldTimer += dt;
+      }
+      if (!spacePressed && prevSpace && passCharging) {
+        passCharging = false;
+        if (receiver && receiver.active && spaceHoldTimer >= PASS_HOLD_THRESHOLD) {
+          startPass();
+        } else if (player.jukeCooldown <= 0) {
+          player.jukeTimer = JUKE_DURATION;
+          player.jukeCooldown = JUKE_COOLDOWN;
+          player.jukeCloseCall = false;
+          sfx('coin');
+          shake(0.08, 1.5);
+          dustFx.burst(player.x, player.y + 6, 10, {
+            colors: ['#d8c090', '#c8a870'], speedMin: 40, speedMax: 140, lifeMin: 0.2, lifeMax: 0.4,
+            sizeMin: 2, sizeMax: 4, gravity: 60,
+          });
+        }
       }
       prevSpace = spacePressed;
       player.jukeTimer = Math.max(0, player.jukeTimer - dt);
+
+      // the pass may have just put the ball in the air - stop this frame's
+      // movement/defender processing immediately so it isn't applied twice.
+      if (ball.mode === 'inflight') return;
 
       const juking = player.jukeTimer > 0;
       const speedMul = (juking ? JUKE_SPEED_MULT : 1) * theme.slow;
@@ -295,25 +471,9 @@ function createGridironLevel(api) {
       trail.forEach((t) => { t.life -= dt; });
       trail = trail.filter((t) => t.life > 0);
 
-      // defender pursuit AI: limited turn rate + brief reaction lag keeps
-      // gaps readable instead of homing perfectly onto the player.
-      defenders.forEach((d) => {
-        if (!d.alive) return;
-        d.bob += dt * 6;
-        if (d.reaction > 0) {
-          d.reaction -= dt;
-          d.x += Math.cos(d.angle) * d.speed * 0.25 * dt;
-          d.y += Math.sin(d.angle) * d.speed * 0.25 * dt;
-          return;
-        }
-        const desired = Math.atan2(player.y - d.y, player.x - d.x);
-        const diff = angleDiff(desired, d.angle);
-        const maxTurn = d.turnRate * dt;
-        d.angle += clamp(diff, -maxTurn, maxTurn);
-        d.x += Math.cos(d.angle) * d.speed * dt;
-        d.y += Math.sin(d.angle) * d.speed * dt;
-        d.y = clamp(d.y, FIELD_TOP + DEFENDER_R, FIELD_BOTTOM - DEFENDER_R);
-      });
+      // defender pursuit + receiver route (shared with the ball-in-flight
+      // path above, so coverage keeps evolving during a pass too).
+      updateFieldActors(dt);
 
       // reward a well-timed juke: slipping a defender at close range while
       // immune is the signature "nasty move" moment, so call it out with its
@@ -486,7 +646,7 @@ function createGridironLevel(api) {
       // juke afterimage trail
       trail.forEach((t, i) => {
         const a = Math.max(0, t.life / 0.22) * 0.35;
-        drawRunner(ctx, t.x, t.y, t.facing, a, '#7fb8d8', '#d9b98a', t.runPhase, PLAYER_R);
+        drawRunner(ctx, t.x, t.y, t.facing, a, '#7fb8d8', '#d9b98a', t.runPhase, PLAYER_R, 20);
       });
 
       // defenders
@@ -494,7 +654,7 @@ function createGridironLevel(api) {
         if (!d.alive) return;
         const bob = Math.sin(d.bob) * 1.2;
         const facing = { dx: Math.cos(d.angle), dy: Math.sin(d.angle) };
-        drawRunner(ctx, d.x, d.y + bob, facing, 1, '#a83a3a', '#3a2a24', d.bob * 2.2, DEFENDER_R);
+        drawRunner(ctx, d.x, d.y + bob, facing, 1, '#a83a3a', '#3a2a24', d.bob * 2.2, DEFENDER_R, 55);
         if (d.reaction > 0) {
           ctx.fillStyle = 'rgba(255,220,120,0.85)';
           ctx.beginPath();
@@ -503,10 +663,62 @@ function createGridironLevel(api) {
         }
       });
 
+      // receiver (teammate) running his route - a small ring shows whether
+      // he's open (green) or covered (red) right now, the read you need to
+      // decide whether releasing the pass this instant is a good idea.
+      if (receiver && receiver.active) {
+        const rbob = Math.sin(receiver.runPhase * 0.5) * 1;
+        drawRunner(ctx, receiver.x, receiver.y + rbob, { dx: 1, dy: 0 }, 1, '#3a7ec8', '#e8ecf4', receiver.runPhase, RECEIVER_R, 84);
+        ctx.strokeStyle = receiver.open ? 'rgba(107,255,107,0.85)' : 'rgba(255,92,92,0.85)';
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.arc(receiver.x, receiver.y + rbob, RECEIVER_R + 5, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
       // player
       const flashOn = player.hitFlash > 0 && Math.floor(player.hitFlash * 20) % 2 === 0;
       const jukeGlow = player.jukeTimer > 0;
-      drawRunner(ctx, player.x, player.y, player.facing, 1, flashOn ? '#ff5c5c' : (jukeGlow ? '#ffe08a' : '#2a6fa8'), '#e8ecf4', player.runPhase, PLAYER_R);
+      drawRunner(ctx, player.x, player.y, player.facing, 1, flashOn ? '#ff5c5c' : (jukeGlow ? '#ffe08a' : '#2a6fa8'), '#e8ecf4', player.runPhase, PLAYER_R, 20);
+
+      // the football itself: a spinning dot arcing between passer and
+      // receiver while thrown, or tucked at the carrier's side otherwise.
+      if (ball.mode === 'inflight' && receiver) {
+        const t = ball.t;
+        const bx = ball.fromX + (receiver.x - ball.fromX) * t;
+        const by = ball.fromY + (receiver.y - ball.fromY) * t;
+        const lift = Math.sin(Math.PI * t) * ball.arc;
+        FX.shadow(ctx, bx, by + 4, 3, 1.5, 0.3);
+        ctx.save();
+        ctx.translate(bx, by - lift);
+        ctx.rotate(elapsed * 16);
+        ctx.fillStyle = '#7a4020';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 5, 3, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(-2.5, 0); ctx.lineTo(2.5, 0);
+        ctx.stroke();
+        ctx.restore();
+      } else {
+        const bx = player.x - player.facing.dy * 6 + player.facing.dx * 2;
+        const by = player.y + player.facing.dx * 6 + player.facing.dy * 2;
+        ctx.save();
+        ctx.translate(bx, by);
+        ctx.rotate(Math.atan2(player.facing.dy, player.facing.dx));
+        ctx.fillStyle = '#7a4020';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 4, 2.6, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+        ctx.lineWidth = 0.7;
+        ctx.beginPath();
+        ctx.moveTo(-2, 0); ctx.lineTo(2, 0);
+        ctx.stroke();
+        ctx.restore();
+      }
 
       hitFx.draw(ctx);
       floatText.draw(ctx);
@@ -572,14 +784,16 @@ function createGridironLevel(api) {
       ctx.fillText(`TO GO: ${toGo} YDS`, W - 8, 14);
       ctx.textAlign = 'left';
 
-      if (player.jukeCooldown > 0 && player.jukeTimer <= 0) {
-        ctx.fillStyle = 'rgba(232,236,255,0.5)';
+      if (ball.mode === 'inflight') {
+        ctx.fillStyle = 'rgba(79,227,208,0.85)';
         ctx.font = '8px monospace';
-        ctx.fillText('JUKE RECHARGING', 8, H - 8);
+        ctx.fillText('BALL IN THE AIR...', 8, H - 8);
       } else if (player.jukeTimer <= 0) {
-        ctx.fillStyle = 'rgba(255,210,79,0.8)';
+        const jukeLabel = player.jukeCooldown > 0 ? 'JUKE RECHARGING' : 'TAP: JUKE';
+        const hint = receiver && receiver.active ? `${jukeLabel} • HOLD: PASS` : jukeLabel;
+        ctx.fillStyle = player.jukeCooldown > 0 ? 'rgba(232,236,255,0.5)' : 'rgba(255,210,79,0.8)';
         ctx.font = '8px monospace';
-        ctx.fillText('SPACE: JUKE', 8, H - 8);
+        ctx.fillText(hint, 8, H - 8);
       }
 
       FX.scanlines(ctx, W, H, 0.05);
@@ -593,7 +807,7 @@ function createGridironLevel(api) {
   // with a facemask cage - oriented toward `facing`. Shared by the live
   // player, the juke afterimage trail, and the defenders (their own
   // jersey/helmet colors).
-  function drawRunner(ctx, x, y, facing, alpha, bodyColor, helmetColor, runPhase, radius) {
+  function drawRunner(ctx, x, y, facing, alpha, bodyColor, helmetColor, runPhase, radius, number) {
     ctx.save();
     ctx.globalAlpha = alpha;
     const r = radius || PLAYER_R;
@@ -643,8 +857,13 @@ function createGridironLevel(api) {
     ctx.lineWidth = 1;
     ctx.stroke();
     ctx.restore();
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
-    ctx.fillRect(x - 1, y - r * 0.33, 2, r * 0.66);
+    if (number != null) {
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.font = `bold ${Math.max(6, Math.round(r * 0.6))}px monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(number), x, y + r * 0.05);
+    }
 
     // pumping arms: drawn on top of the torso/pads so they clearly read as
     // reaching out from the shoulders, swinging opposite-phase to the
