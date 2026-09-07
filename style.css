@@ -357,3 +357,44 @@ body {
   color: #556;
   letter-spacing: 1px;
 }
+
+/* Short, wide viewports (phone held sideways): the default vertical stack
+   (hud/marquee/stage/controls/footer) makes the stage grow to fill the
+   full width via aspect-ratio, which overflows the tiny viewport height
+   and pushes the touch controls off-screen. Lay the stage and controls
+   out side-by-side instead, sized off height rather than width. */
+@media (orientation: landscape) and (max-height: 500px) {
+  body { padding: 6px; }
+  #wrap {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-content: center;
+    justify-content: center;
+    gap: 6px;
+    max-width: 100%;
+  }
+  #hud { flex: 0 0 100%; padding: 4px 10px; font-size: 12px; gap: 2px 12px; }
+  #hud-title { display: none; }
+  #marquee, #footer { display: none; }
+  #stage {
+    width: auto;
+    height: min(78vh, 60vw, 400px);
+    flex: 0 0 auto;
+  }
+  #touch-controls {
+    flex: 0 0 auto;
+    align-self: center;
+    padding: 6px 10px;
+    gap: 8px;
+  }
+  #touch-dpad {
+    grid-template-columns: repeat(3, min(8vh, 38px));
+    grid-template-rows: repeat(3, min(8vh, 38px));
+  }
+  #touch-numpad {
+    grid-template-columns: repeat(3, min(7vh, 34px));
+    grid-template-rows: repeat(3, min(7vh, 34px));
+  }
+  .action-btn { width: min(11vh, 56px); height: min(11vh, 56px); }
+  .pause-btn { width: min(7vh, 34px); height: min(7vh, 34px); }
+}
