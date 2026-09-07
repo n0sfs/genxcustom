@@ -288,6 +288,41 @@ const Game = (() => {
     return names.some((n) => keys[n]);
   }
 
+  // Mouse tracking: canvas-space coordinates (correct regardless of CSS
+  // scaling/layout - desktop, mobile portrait, or the landscape height-sized
+  // stage) plus left-button state. A press also pulses the same Space
+  // keydown/keyup every on-screen touch button already dispatches, so
+  // "click = action button" works in every game for free; each level reads
+  // raw position/press state via the api to decide its own genre-appropriate
+  // mapping (paddle follows cursor, reticle aims, click-and-hold to move...).
+  const mouse = { x: W / 2, y: H / 2, down: false };
+  function toCanvasSpace(e) {
+    const rect = canvas.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * W;
+    const y = ((e.clientY - rect.top) / rect.height) * H;
+    return { x: Math.max(0, Math.min(W, x)), y: Math.max(0, Math.min(H, y)) };
+  }
+  canvas.addEventListener('mousemove', (e) => {
+    const p = toCanvasSpace(e);
+    mouse.x = p.x;
+    mouse.y = p.y;
+  });
+  canvas.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const p = toCanvasSpace(e);
+    mouse.x = p.x;
+    mouse.y = p.y;
+    mouse.down = true;
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ' }));
+  });
+  window.addEventListener('mouseup', (e) => {
+    if (e.button !== 0 || !mouse.down) return;
+    mouse.down = false;
+    window.dispatchEvent(new KeyboardEvent('keyup', { key: ' ' }));
+  });
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
   function showScreen(name) {
     Object.entries(screens).forEach(([key, el]) => {
       el.classList.toggle('hidden', key !== name);
@@ -488,6 +523,9 @@ const Game = (() => {
     shake,
     get lives() { return state.lives; },
     get score() { return state.score; },
+    get mouseX() { return mouse.x; },
+    get mouseY() { return mouse.y; },
+    get mouseDown() { return mouse.down; },
   };
 
   function loop(t) {
