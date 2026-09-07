@@ -1,5 +1,5 @@
 // GRIDIRON DASH - fast arcade broken-field-running football.
-// Top-down field, 8-directional running back control, single juke/spin
+// Horizontal field, 8-directional running back control, single juke/spin
 // special move on Space. No passing, no play-calling: just find the seam,
 // break the tackle, get to the end zone before the downs run out.
 function createGridironLevel(api) {
@@ -7,12 +7,13 @@ function createGridironLevel(api) {
 
   const HAND_BUILT_STAGES = 10;
 
-  // Field geometry: sidelines fixed on screen, drive runs "up" the world
-  // (decreasing y) toward the goal line at world-y 0. Everything below that
-  // is measured in pixels; YARD_PX converts a yard count to world pixels.
-  const FIELD_LEFT = 76, FIELD_RIGHT = 564;
-  const FIELD_W = FIELD_RIGHT - FIELD_LEFT;
-  const FIELD_CX = (FIELD_LEFT + FIELD_RIGHT) / 2;
+  // Field geometry: sidelines fixed on screen (top/bottom), drive runs
+  // "right" across the world (increasing x) toward the goal line at
+  // world-x = fieldLength. Everything is measured in pixels; YARD_PX
+  // converts a yard count to world pixels.
+  const FIELD_TOP = 58, FIELD_BOTTOM = 422;
+  const FIELD_H = FIELD_BOTTOM - FIELD_TOP;
+  const FIELD_CY = (FIELD_TOP + FIELD_BOTTOM) / 2;
   const YARD_PX = 9;
   const ENDZONE_DEPTH = 46;
 
@@ -94,7 +95,7 @@ function createGridironLevel(api) {
 
   let cfg, theme, fieldLength, totalDowns, downsLeft, currentLOS;
   let player, defenders, trail, prevSpace, weatherParticles;
-  let cameraY, elapsed, standPulse, screenFlash, dustTimer, celebrating;
+  let cameraX, elapsed, standPulse, screenFlash, dustTimer, celebrating;
 
   function popup(x, y, text, color, size) {
     floatText.spawn(x, y, text, color, { life: 0.9, vy: -30, size: size || 11 });
@@ -105,11 +106,11 @@ function createGridironLevel(api) {
     for (let i = 0; i < cfg.defenderCount; i++) {
       let x, y, tries = 0;
       do {
-        x = FIELD_LEFT + 24 + Math.random() * (FIELD_W - 48);
-        y = currentLOS - (50 + Math.random() * Math.max(60, currentLOS - 40));
+        y = FIELD_TOP + 24 + Math.random() * (FIELD_H - 48);
+        x = currentLOS + (50 + Math.random() * Math.max(60, fieldLength - currentLOS - 40));
         tries++;
       } while (Math.hypot(x - player.x, y - player.y) < 70 && tries < 8);
-      y = Math.max(20, y);
+      x = Math.min(fieldLength - 20, x);
       list.push({
         x, y,
         angle: Math.atan2(player.y - y, player.x - x),
@@ -124,13 +125,13 @@ function createGridironLevel(api) {
   }
 
   function startDown() {
-    player.x = FIELD_CX + (Math.random() - 0.5) * 40;
-    player.y = currentLOS;
+    player.x = currentLOS;
+    player.y = FIELD_CY + (Math.random() - 0.5) * 40;
     player.jukeTimer = 0;
     player.jukeCooldown = 0;
     player.grace = POST_TACKLE_GRACE;
     player.hitFlash = 0;
-    player.facing = { dx: 0, dy: -1 };
+    player.facing = { dx: 1, dy: 0 };
     trail = [];
     defenders = spawnDefenders();
     sfx('select');
@@ -190,20 +191,20 @@ function createGridironLevel(api) {
       fieldLength = cfg.driveYards * YARD_PX;
       totalDowns = cfg.downs;
       downsLeft = totalDowns;
-      currentLOS = fieldLength;
+      currentLOS = 0;
       elapsed = 0;
       standPulse = 0;
       screenFlash = 0;
       dustTimer = 0;
       celebrating = 0;
       prevSpace = false;
-      player = { x: FIELD_CX, y: currentLOS, w: PLAYER_R, jukeTimer: 0, jukeCooldown: 0, jukeCloseCall: false, grace: 0, hitFlash: 0, facing: { dx: 0, dy: -1 }, runPhase: 0 };
+      player = { x: currentLOS, y: FIELD_CY, w: PLAYER_R, jukeTimer: 0, jukeCooldown: 0, jukeCloseCall: false, grace: 0, hitFlash: 0, facing: { dx: 1, dy: 0 }, runPhase: 0 };
       dustFx.clear();
       hitFx.clear();
       floatText.clear();
       initWeather();
       startDown();
-      cameraY = player.y - H * 0.62;
+      cameraX = player.x - W * 0.38;
     },
 
     update(dt) {
@@ -240,11 +241,11 @@ function createGridironLevel(api) {
         mvx = n.dx; mvy = n.dy;
       } else if (api.mouseDown) {
         // Click-and-hold: steer toward the cursor. Mouse coords are canvas-
-        // space (0-640 x 0-480); the world is only scrolled vertically
-        // (ctx.translate(0, -cameraY)), so undo that on y to get world-space,
+        // space (0-640 x 0-480); the world is only scrolled horizontally
+        // (ctx.translate(-cameraX, 0)), so undo that on x to get world-space,
         // then feed the same normalize()/facing pipeline the keyboard uses.
-        const targetX = api.mouseX;
-        const targetY = api.mouseY + cameraY;
+        const targetX = api.mouseX + cameraX;
+        const targetY = api.mouseY;
         const toTarget = normalize(targetX - player.x, targetY - player.y);
         const dist = Math.hypot(targetX - player.x, targetY - player.y);
         if (dist > 2) {
@@ -270,10 +271,10 @@ function createGridironLevel(api) {
 
       const juking = player.jukeTimer > 0;
       const speedMul = (juking ? JUKE_SPEED_MULT : 1) * theme.slow;
-      player.x += mvx * PLAYER_SPEED * speedMul * dt + theme.wind * dt;
-      player.y += mvy * PLAYER_SPEED * speedMul * dt;
-      player.x = clamp(player.x, FIELD_LEFT + PLAYER_R, FIELD_RIGHT - PLAYER_R);
-      player.y = clamp(player.y, -ENDZONE_DEPTH + PLAYER_R, fieldLength + 30);
+      player.x += mvx * PLAYER_SPEED * speedMul * dt;
+      player.y += mvy * PLAYER_SPEED * speedMul * dt + theme.wind * dt;
+      player.y = clamp(player.y, FIELD_TOP + PLAYER_R, FIELD_BOTTOM - PLAYER_R);
+      player.x = clamp(player.x, -30, fieldLength + ENDZONE_DEPTH - PLAYER_R);
 
       // turf trail while moving; juking leaves a heavier, longer afterimage.
       dustTimer -= dt;
@@ -311,7 +312,7 @@ function createGridironLevel(api) {
         d.angle += clamp(diff, -maxTurn, maxTurn);
         d.x += Math.cos(d.angle) * d.speed * dt;
         d.y += Math.sin(d.angle) * d.speed * dt;
-        d.x = clamp(d.x, FIELD_LEFT + DEFENDER_R, FIELD_RIGHT - DEFENDER_R);
+        d.y = clamp(d.y, FIELD_TOP + DEFENDER_R, FIELD_BOTTOM - DEFENDER_R);
       });
 
       // reward a well-timed juke: slipping a defender at close range while
@@ -339,7 +340,7 @@ function createGridironLevel(api) {
         for (const d of defenders) {
           if (!d.alive) continue;
           if (Math.hypot(d.x - player.x, d.y - player.y) < TACKLE_DIST) {
-            const yardsGained = Math.max(0, Math.round((currentLOS - player.y) / YARD_PX));
+            const yardsGained = Math.max(0, Math.round((player.x - currentLOS) / YARD_PX));
             player.hitFlash = 0.4;
             screenFlash = 0.4;
             shake(0.22, 5);
@@ -351,7 +352,7 @@ function createGridironLevel(api) {
             popup(player.x, player.y - 14, `+${yardsGained} YDS`, '#ffe08a', 11);
             addScore(yardsGained * 2);
             downsLeft--;
-            currentLOS = Math.max(0, player.y);
+            currentLOS = Math.min(fieldLength, Math.max(0, player.x));
             if (downsLeft <= 0) {
               loseLife();
               return;
@@ -364,7 +365,7 @@ function createGridironLevel(api) {
       }
 
       // touchdown
-      if (player.y <= -ENDZONE_DEPTH * 0.55) {
+      if (player.x >= fieldLength + ENDZONE_DEPTH * 0.55) {
         celebrating = 1.1;
         standPulse = 1.4;
         sfx('levelclear');
@@ -379,35 +380,35 @@ function createGridironLevel(api) {
         return;
       }
 
-      cameraY = clamp(player.y - H * 0.62, -ENDZONE_DEPTH - 20, Math.max(0, fieldLength - H * 0.3));
+      cameraX = clamp(player.x - W * 0.38, -30, Math.max(-30, fieldLength + ENDZONE_DEPTH - W * 0.62));
     },
 
     draw(ctx) {
       FX.gradientRect(ctx, 0, 0, W, H, theme.sky[0], theme.sky[1]);
 
       if (theme.lights) {
-        [W * 0.06, W * 0.94].forEach((lx) => {
-          const grad = ctx.createRadialGradient(lx, 10, 4, lx, 10, 220);
+        [H * 0.08, H * 0.92].forEach((ly) => {
+          const grad = ctx.createRadialGradient(10, ly, 4, 10, ly, 220);
           grad.addColorStop(0, 'rgba(255,244,210,0.5)');
           grad.addColorStop(1, 'rgba(255,244,210,0)');
           ctx.fillStyle = grad;
           ctx.beginPath();
-          ctx.arc(lx, 10, 220, 0, Math.PI * 2);
+          ctx.arc(10, ly, 220, 0, Math.PI * 2);
           ctx.fill();
         });
       }
 
-      // stands (fixed screen space, flanking the field)
-      [{ x0: 0, x1: FIELD_LEFT }, { x0: FIELD_RIGHT, x1: W }].forEach((band) => {
-        FX.gradientRect(ctx, band.x0, 0, band.x1 - band.x0, H, FX.shade(theme.crowd, -10), FX.shade(theme.crowd, -35));
+      // stands (fixed screen space, flanking the field top/bottom)
+      [{ y0: 0, y1: FIELD_TOP }, { y0: FIELD_BOTTOM, y1: H }].forEach((band) => {
+        FX.gradientRect(ctx, 0, band.y0, W, band.y1 - band.y0, FX.shade(theme.crowd, -10), FX.shade(theme.crowd, -35));
         const pulse = standPulse > 0 ? Math.sin(elapsed * 24) * 2 * standPulse : 0;
         ctx.fillStyle = standPulse > 0 ? FX.shade(theme.crowd, 45) : FX.shade(theme.crowd, 15);
-        for (let row = 0; row < 9; row++) {
-          const ry = row * 26 + 14 + (row % 2 === 0 ? 0 : 8);
-          for (let cx = band.x0 + 8; cx < band.x1 - 6; cx += 13) {
-            const bob = Math.sin(elapsed * 3 + cx * 0.4 + row) * 1.2 + pulse;
+        for (let cx = 8; cx < W; cx += 26) {
+          const colOffset = Math.round(cx / 26) % 2 === 0 ? 0 : 6;
+          for (let cy = band.y0 + 8 + colOffset; cy < band.y1 - 6; cy += 13) {
+            const bob = Math.sin(elapsed * 3 + cx * 0.4 + cy) * 1.2 + pulse;
             ctx.beginPath();
-            ctx.arc(cx, ry + bob, 3, 0, Math.PI * 2);
+            ctx.arc(cx + bob, cy, 3, 0, Math.PI * 2);
             ctx.fill();
           }
         }
@@ -415,53 +416,58 @@ function createGridironLevel(api) {
 
       ctx.save();
       ctx.beginPath();
-      ctx.rect(FIELD_LEFT, 0, FIELD_W, H);
+      ctx.rect(0, FIELD_TOP, W, FIELD_H);
       ctx.clip();
-      ctx.translate(0, -cameraY);
+      ctx.translate(-cameraX, 0);
 
-      // grass
-      FX.gradientRect(ctx, FIELD_LEFT, -ENDZONE_DEPTH - 20, FIELD_W, fieldLength + ENDZONE_DEPTH + 60, theme.grass[0], theme.grass[1]);
+      // grass, with a proper goal-to-back turf gradient running along the
+      // play direction (x) rather than sideline-to-sideline.
+      const grassGrad = ctx.createLinearGradient(-20, 0, fieldLength + ENDZONE_DEPTH + 40, 0);
+      grassGrad.addColorStop(0, theme.grass[1]);
+      grassGrad.addColorStop(1, theme.grass[0]);
+      ctx.fillStyle = grassGrad;
+      ctx.fillRect(-20, FIELD_TOP, fieldLength + ENDZONE_DEPTH + 60, FIELD_H);
       // subtle mown stripes every 2 yards
       ctx.fillStyle = 'rgba(255,255,255,0.035)';
-      for (let y = 0; y < fieldLength; y += YARD_PX * 4) ctx.fillRect(FIELD_LEFT, y, FIELD_W, YARD_PX * 2);
+      for (let x = 0; x < fieldLength; x += YARD_PX * 4) ctx.fillRect(x, FIELD_TOP, YARD_PX * 2, FIELD_H);
 
       // end zone
-      const ez = ctx.createLinearGradient(FIELD_LEFT, -ENDZONE_DEPTH, FIELD_LEFT, 0);
+      const ez = ctx.createLinearGradient(fieldLength, 0, fieldLength + ENDZONE_DEPTH, 0);
       ez.addColorStop(0, FX.shade(theme.grass[0], -20));
       ez.addColorStop(1, FX.shade(theme.grass[0], 10));
       ctx.fillStyle = ez;
-      ctx.fillRect(FIELD_LEFT, -ENDZONE_DEPTH, FIELD_W, ENDZONE_DEPTH);
+      ctx.fillRect(fieldLength, FIELD_TOP, ENDZONE_DEPTH, FIELD_H);
       ctx.strokeStyle = 'rgba(255,255,255,0.55)';
       ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.moveTo(FIELD_LEFT, 0); ctx.lineTo(FIELD_RIGHT, 0);
+      ctx.moveTo(fieldLength, FIELD_TOP); ctx.lineTo(fieldLength, FIELD_BOTTOM);
       ctx.stroke();
       ctx.save();
-      ctx.translate(FIELD_CX, -ENDZONE_DEPTH / 2);
-      ctx.rotate(-Math.PI / 2);
+      ctx.translate(fieldLength + ENDZONE_DEPTH / 2, FIELD_CY);
+      ctx.rotate(Math.PI / 2);
       ctx.fillStyle = 'rgba(255,255,255,0.5)';
       ctx.font = 'bold 14px monospace';
       ctx.textAlign = 'center';
       ctx.fillText('END ZONE', 0, 5);
       ctx.restore();
 
-      // yard lines + hash marks + numbers
+      // yard lines + numbers
       ctx.strokeStyle = 'rgba(255,255,255,0.4)';
       ctx.fillStyle = 'rgba(255,255,255,0.4)';
       ctx.lineWidth = 1;
       ctx.font = '10px monospace';
       ctx.textAlign = 'center';
       for (let yardsFromGoal = 0; yardsFromGoal <= cfg.driveYards + 2; yardsFromGoal += 5) {
-        const y = yardsFromGoal * YARD_PX;
+        const x = fieldLength - yardsFromGoal * YARD_PX;
         const major = yardsFromGoal % 10 === 0;
         ctx.globalAlpha = major ? 0.5 : 0.28;
         ctx.beginPath();
-        ctx.moveTo(FIELD_LEFT, y); ctx.lineTo(FIELD_RIGHT, y);
+        ctx.moveTo(x, FIELD_TOP); ctx.lineTo(x, FIELD_BOTTOM);
         ctx.stroke();
         if (major && yardsFromGoal > 0) {
           const label = String(Math.min(yardsFromGoal, Math.abs(cfg.driveYards - yardsFromGoal)));
-          ctx.fillText(label, FIELD_LEFT + 16, y - 4);
-          ctx.fillText(label, FIELD_RIGHT - 16, y - 4);
+          ctx.fillText(label, x, FIELD_TOP + 13);
+          ctx.fillText(label, x, FIELD_BOTTOM - 5);
         }
       }
       ctx.globalAlpha = 1;
@@ -471,7 +477,7 @@ function createGridironLevel(api) {
       ctx.lineWidth = 2;
       ctx.setLineDash([6, 5]);
       ctx.beginPath();
-      ctx.moveTo(FIELD_LEFT, currentLOS); ctx.lineTo(FIELD_RIGHT, currentLOS);
+      ctx.moveTo(currentLOS, FIELD_TOP); ctx.lineTo(currentLOS, FIELD_BOTTOM);
       ctx.stroke();
       ctx.setLineDash([]);
 
@@ -562,7 +568,7 @@ function createGridironLevel(api) {
       ctx.fillText(theme.label, W / 2, 14);
       ctx.textAlign = 'right';
       ctx.fillStyle = '#e8ecff';
-      const toGo = Math.max(0, Math.ceil(player.y / YARD_PX));
+      const toGo = Math.max(0, Math.ceil((fieldLength - player.x) / YARD_PX));
       ctx.fillText(`TO GO: ${toGo} YDS`, W - 8, 14);
       ctx.textAlign = 'left';
 
@@ -581,10 +587,12 @@ function createGridironLevel(api) {
     },
   };
 
-  // Top-down football player sprite: shadow, striding legs, shoulder pads,
-  // jersey torso with a number stripe, and a helmet with a facemask cage -
-  // oriented toward `facing`. Shared by the live player, the juke afterimage
-  // trail, and the defenders (with their own jersey/helmet colors).
+  // Top-down football player sprite: shadow, striding legs, pumping arms,
+  // padded shoulders, an elongated (not perfectly round) torso with a
+  // number stripe, a neck, a hint of chin/jaw peeking out, and a helmet
+  // with a facemask cage - oriented toward `facing`. Shared by the live
+  // player, the juke afterimage trail, and the defenders (their own
+  // jersey/helmet colors).
   function drawRunner(ctx, x, y, facing, alpha, bodyColor, helmetColor, runPhase, radius) {
     ctx.save();
     ctx.globalAlpha = alpha;
@@ -592,6 +600,8 @@ function createGridironLevel(api) {
     const dx = facing ? facing.dx : 0, dy = facing ? facing.dy : -1;
     const perpX = -dy, perpY = dx;
     const stride = Math.sin(runPhase || 0);
+    const skin = '#d9a978';
+    const ang = Math.atan2(dy, dx);
 
     FX.shadow(ctx, x, y + 8, r * 0.95, 3, 0.35 * alpha);
 
@@ -602,7 +612,7 @@ function createGridironLevel(api) {
       const lx = x + perpX * r * 0.29 * side - dx * (r * 0.28 + legT * 2.5) * 0.6;
       const ly = y + perpY * r * 0.29 * side - dy * (r * 0.28 + legT * 2.5) * 0.6 + r * 0.6;
       ctx.beginPath();
-      ctx.ellipse(lx, ly, r * 0.22, r * 0.36, Math.atan2(dy, dx), 0, Math.PI * 2);
+      ctx.ellipse(lx, ly, r * 0.22, r * 0.36, ang, 0, Math.PI * 2);
       ctx.fill();
     });
 
@@ -610,24 +620,71 @@ function createGridironLevel(api) {
     const padColor = FX.shade(bodyColor, -18);
     [-1, 1].forEach((side) => {
       ctx.beginPath();
-      ctx.ellipse(x + perpX * r * 0.71 * side, y + perpY * r * 0.71 * side, r * 0.4, r * 0.51, Math.atan2(dy, dx), 0, Math.PI * 2);
+      ctx.ellipse(x + perpX * r * 0.71 * side, y + perpY * r * 0.71 * side, r * 0.4, r * 0.51, ang, 0, Math.PI * 2);
       ctx.fillStyle = padColor;
       ctx.fill();
     });
 
-    // jersey torso
-    FX.sphere(ctx, x, y, r, bodyColor);
+    // jersey torso: elongated oval (front-to-back, not a perfect circle)
+    // with a lit-sphere-style radial gradient for a rounder, more human
+    // body read than a flat disc.
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(ang);
+    const torsoGrad = ctx.createRadialGradient(-r * 0.25, -r * 0.3, r * 0.1, 0, 0, r * 1.15);
+    torsoGrad.addColorStop(0, FX.shade(bodyColor, 50));
+    torsoGrad.addColorStop(0.5, bodyColor);
+    torsoGrad.addColorStop(1, FX.shade(bodyColor, -35));
+    ctx.fillStyle = torsoGrad;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r * 1.05, r * 0.86, 0, 0, Math.PI * 2);
+    ctx.fill();
     ctx.strokeStyle = 'rgba(0,0,0,0.45)';
     ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.stroke();
+    ctx.restore();
     ctx.fillStyle = 'rgba(255,255,255,0.55)';
     ctx.fillRect(x - 1, y - r * 0.33, 2, r * 0.66);
 
+    // pumping arms: drawn on top of the torso/pads so they clearly read as
+    // reaching out from the shoulders, swinging opposite-phase to the
+    // same-side leg (like an actual running gait) and reaching well past
+    // the torso's own silhouette so they never get swallowed by it.
+    ctx.strokeStyle = skin;
+    ctx.lineWidth = Math.max(1.4, r * 0.22);
+    ctx.lineCap = 'round';
+    [-1, 1].forEach((side) => {
+      const armSwing = -stride * side;
+      const shoulderX = x + perpX * r * 0.66 * side + dx * r * 0.08;
+      const shoulderY = y + perpY * r * 0.66 * side + dy * r * 0.08;
+      const handX = shoulderX + dx * r * (0.85 + armSwing * 0.55) + perpX * r * 0.2 * side * armSwing;
+      const handY = shoulderY + dy * r * (0.85 + armSwing * 0.55) + perpY * r * 0.2 * side * armSwing;
+      ctx.beginPath();
+      ctx.moveTo(shoulderX, shoulderY);
+      ctx.lineTo(handX, handY);
+      ctx.stroke();
+    });
+    ctx.lineCap = 'butt';
+
+    // neck: a short skin-toned strap connecting the torso to the helmet
+    ctx.strokeStyle = skin;
+    ctx.lineWidth = Math.max(1.5, r * 0.3);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x + dx * r * 0.12, y + dy * r * 0.12);
+    ctx.lineTo(x + dx * r * 0.3, y + dy * r * 0.3 - r * 0.18);
+    ctx.stroke();
+    ctx.lineCap = 'butt';
+
     // helmet with a facemask cage and a center stripe
     const hx = x + dx * r * 0.33, hy = y + dy * r * 0.33 - r * 0.56;
-    FX.sphere(ctx, hx, hy, r * 0.56, helmetColor || '#d9b98a');
+    // a hint of chin/jaw peeking out below the facemask - the clearest
+    // "there's a person in there" cue at this scale.
+    ctx.fillStyle = skin;
+    ctx.beginPath();
+    ctx.ellipse(hx + dx * r * 0.2, hy + dy * r * 0.2 + r * 0.32, r * 0.2, r * 0.15, ang, 0, Math.PI * 2);
+    ctx.fill();
+    FX.sphere(ctx, hx, hy, r * 0.54, helmetColor || '#d9b98a');
     ctx.strokeStyle = 'rgba(255,255,255,0.55)';
     ctx.lineWidth = 0.8;
     ctx.beginPath();
