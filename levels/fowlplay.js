@@ -113,7 +113,7 @@ function createFowlPlayLevel(api) {
   let currentStage = 1, cfg = STAGE_CONFIGS[0], visuals = THEME_VISUALS.dawn;
   let flights, flightIdx, ducks, shotsRemaining, totalHits, totalDucks, quota;
   let zeroHitStreak, phase, wonCalled;
-  let dogTimer, dogState, dogDucksHeld, dogTextSpawned;
+  let dogTimer, dogState, dogDucksHeld, dogTextSpawned, dogPerfect;
   let reticle, prevSpace;
   let flashTimer, flashColor;
   let clouds, reeds;
@@ -182,6 +182,7 @@ function createFowlPlayLevel(api) {
     phase = 'dogshow';
     dogState = flightHits > 0 ? 'proud' : 'laugh';
     dogDucksHeld = flightHits;
+    dogPerfect = flightHits > 0 && flightHits === ducks.length;
     dogTimer = 0;
     dogTextSpawned = false;
     sfx('select');
@@ -353,7 +354,19 @@ function createFowlPlayLevel(api) {
         }
         if (dogState === 'proud' && !dogTextSpawned && dogTimer > DOG_RISE) {
           dogTextSpawned = true;
-          if (dogDucksHeld > 0) fxFloatText.spawn(W / 2, H - 150, dogDucksHeld > 1 ? 'NICE SHOOTING!' : 'GOT ONE!', '#9cff9c', { life: 1.1, vy: -14, size: 12 });
+          if (dogPerfect) {
+            const bonus = 60 + currentStage * 8 + dogDucksHeld * 20;
+            addScore(bonus);
+            fxFloatText.spawn(W / 2, H - 150, `PERFECT! +${bonus}`, '#ffd24f', { life: 1.2, vy: -16, size: 13 });
+            fxParticles.burst(W / 2, H - 150, 22, {
+              colors: ['#ffd24f', '#fff8d8', '#9cff9c', '#ffffff'],
+              speedMin: 60, speedMax: 220, lifeMin: 0.3, lifeMax: 0.6,
+              sizeMin: 2, sizeMax: 4, gravity: 60,
+            });
+            shake(0.12, 2);
+          } else if (dogDucksHeld > 0) {
+            fxFloatText.spawn(W / 2, H - 150, dogDucksHeld > 1 ? 'NICE SHOOTING!' : 'GOT ONE!', '#9cff9c', { life: 1.1, vy: -14, size: 12 });
+          }
         }
         if (dogTimer >= DOG_TOTAL) resolveDogShow();
       }
@@ -495,6 +508,15 @@ function createFowlPlayLevel(api) {
     const c = d.color;
     const flap = d.state === 'hit' ? 0.2 : Math.sin(d.flapPhase);
 
+    // tail feather tuft, opposite the head
+    ctx.fillStyle = FX.shade(c.body, -22);
+    ctx.beginPath();
+    ctx.moveTo(-d.w * 0.46, -d.h * 0.04);
+    ctx.lineTo(-d.w * 0.72, -d.h * 0.2);
+    ctx.lineTo(-d.w * 0.68, d.h * 0.06);
+    ctx.closePath();
+    ctx.fill();
+
     // body
     ctx.fillStyle = c.body;
     ctx.beginPath();
@@ -511,11 +533,31 @@ function createFowlPlayLevel(api) {
     ctx.ellipse(-d.w * 0.05, d.h * 0.05, d.w * 0.26, d.h * 0.2, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // wing (flapping)
+    // wing (flapping), with a couple of trailing flight-feather strokes
     ctx.fillStyle = FX.shade(c.body, -30);
     ctx.beginPath();
     ctx.ellipse(-d.w * 0.05, -flap * d.h * 0.32, d.w * 0.32, d.h * 0.16, -0.3 - flap * 0.4, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = FX.shade(c.body, -42);
+    ctx.lineWidth = 0.7;
+    for (let i = 0; i < 3; i++) {
+      const fx = -d.w * (0.22 + i * 0.09);
+      const fy = -flap * d.h * 0.32 + d.h * (0.02 + i * 0.05);
+      ctx.beginPath();
+      ctx.moveTo(fx, fy);
+      ctx.lineTo(fx - d.w * 0.1, fy + d.h * 0.14);
+      ctx.stroke();
+    }
+
+    // neck curve connecting body to head
+    ctx.strokeStyle = c.head;
+    ctx.lineWidth = d.h * 0.2;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(d.w * 0.16, -d.h * 0.02);
+    ctx.quadraticCurveTo(d.w * 0.3, -d.h * 0.18, d.w * 0.34, -d.h * 0.18);
+    ctx.stroke();
+    ctx.lineCap = 'butt';
 
     // head + beak
     ctx.fillStyle = c.head;
@@ -529,8 +571,22 @@ function createFowlPlayLevel(api) {
     ctx.lineTo(d.w * 0.58, -d.h * 0.08);
     ctx.closePath();
     ctx.fill();
-    ctx.fillStyle = '#111';
-    ctx.fillRect(d.w * 0.4, -d.h * 0.24, 1.6, 1.6);
+    ctx.strokeStyle = FX.shade(c.beak, -35);
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(d.w * 0.6, -d.h * 0.14);
+    ctx.lineTo(d.w * 0.78, -d.h * 0.14);
+    ctx.stroke();
+
+    // eye: round, with a small highlight instead of a flat dot
+    ctx.fillStyle = '#241c14';
+    ctx.beginPath();
+    ctx.arc(d.w * 0.42, -d.h * 0.24, d.h * 0.06, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.beginPath();
+    ctx.arc(d.w * 0.44, -d.h * 0.26, d.h * 0.02, 0, Math.PI * 2);
+    ctx.fill();
 
     ctx.restore();
   }

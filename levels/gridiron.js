@@ -20,6 +20,7 @@ function createGridironLevel(api) {
   const PLAYER_R = 9;
   const DEFENDER_R = 10;
   const TACKLE_DIST = PLAYER_R + DEFENDER_R - 4;
+  const CLOSE_CALL_DIST = TACKLE_DIST + 10;
   const JUKE_SPEED_MULT = 1.8;
   const JUKE_DURATION = 0.3;
   const JUKE_COOLDOWN = 1.4;
@@ -196,7 +197,7 @@ function createGridironLevel(api) {
       dustTimer = 0;
       celebrating = 0;
       prevSpace = false;
-      player = { x: FIELD_CX, y: currentLOS, w: PLAYER_R, jukeTimer: 0, jukeCooldown: 0, grace: 0, hitFlash: 0, facing: { dx: 0, dy: -1 } };
+      player = { x: FIELD_CX, y: currentLOS, w: PLAYER_R, jukeTimer: 0, jukeCooldown: 0, jukeCloseCall: false, grace: 0, hitFlash: 0, facing: { dx: 0, dy: -1 }, runPhase: 0 };
       dustFx.clear();
       hitFx.clear();
       floatText.clear();
@@ -242,6 +243,7 @@ function createGridironLevel(api) {
       if (spacePressed && !prevSpace && player.jukeCooldown <= 0) {
         player.jukeTimer = JUKE_DURATION;
         player.jukeCooldown = JUKE_COOLDOWN;
+        player.jukeCloseCall = false;
         sfx('coin');
         shake(0.08, 1.5);
         dustFx.burst(player.x, player.y + 6, 10, {
@@ -262,6 +264,7 @@ function createGridironLevel(api) {
       // turf trail while moving; juking leaves a heavier, longer afterimage.
       dustTimer -= dt;
       const moving = mvx !== 0 || mvy !== 0;
+      if (moving) player.runPhase += dt * (juking ? 20 : 12);
       if (moving && dustTimer <= 0) {
         dustTimer = juking ? 0.02 : 0.06;
         dustFx.spawn(player.x - mvx * 6, player.y - mvy * 6 + 6, {
@@ -271,7 +274,7 @@ function createGridironLevel(api) {
         });
       }
       if (juking) {
-        trail.push({ x: player.x, y: player.y, facing: player.facing, life: 0.22 });
+        trail.push({ x: player.x, y: player.y, facing: player.facing, life: 0.22, runPhase: player.runPhase });
         if (trail.length > 8) trail.shift();
       }
       trail.forEach((t) => { t.life -= dt; });
@@ -296,6 +299,26 @@ function createGridironLevel(api) {
         d.y += Math.sin(d.angle) * d.speed * dt;
         d.x = clamp(d.x, FIELD_LEFT + DEFENDER_R, FIELD_RIGHT - DEFENDER_R);
       });
+
+      // reward a well-timed juke: slipping a defender at close range while
+      // immune is the signature "nasty move" moment, so call it out with its
+      // own small bonus - distinct from the tackle/touchdown feedback.
+      if (juking && !player.jukeCloseCall) {
+        for (const d of defenders) {
+          if (!d.alive) continue;
+          if (Math.hypot(d.x - player.x, d.y - player.y) < CLOSE_CALL_DIST) {
+            player.jukeCloseCall = true;
+            const bonus = 15 + Math.round(cfg.defenderSpeed * 0.15);
+            addScore(bonus);
+            popup(player.x, player.y - 18, `JUKED OUT! +${bonus}`, '#4fe3d0', 10);
+            hitFx.burst(player.x, player.y, 8, {
+              colors: ['#4fe3d0', '#ffffff'], speedMin: 40, speedMax: 120, lifeMin: 0.15, lifeMax: 0.3,
+              sizeMin: 1.5, sizeMax: 3, gravity: 0,
+            });
+            break;
+          }
+        }
+      }
 
       // tackle check
       if (player.grace <= 0 && !juking) {
@@ -443,21 +466,15 @@ function createGridironLevel(api) {
       // juke afterimage trail
       trail.forEach((t, i) => {
         const a = Math.max(0, t.life / 0.22) * 0.35;
-        drawRunner(ctx, t.x, t.y, t.facing, a, '#7fb8d8');
+        drawRunner(ctx, t.x, t.y, t.facing, a, '#7fb8d8', '#d9b98a', t.runPhase, PLAYER_R);
       });
 
       // defenders
       defenders.forEach((d) => {
         if (!d.alive) return;
         const bob = Math.sin(d.bob) * 1.2;
-        FX.shadow(ctx, d.x, d.y + 8, DEFENDER_R * 0.9, 3, 0.3);
-        FX.sphere(ctx, d.x, d.y + bob, DEFENDER_R, '#a83a3a');
-        ctx.strokeStyle = 'rgba(0,0,0,0.4)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.arc(d.x, d.y + bob, DEFENDER_R, 0, Math.PI * 2);
-        ctx.stroke();
-        FX.sphere(ctx, d.x + Math.cos(d.angle) * 3, d.y + bob - 6 + Math.sin(d.angle) * 1, 5, '#e0c090');
+        const facing = { dx: Math.cos(d.angle), dy: Math.sin(d.angle) };
+        drawRunner(ctx, d.x, d.y + bob, facing, 1, '#a83a3a', '#3a2a24', d.bob * 2.2, DEFENDER_R);
         if (d.reaction > 0) {
           ctx.fillStyle = 'rgba(255,220,120,0.85)';
           ctx.beginPath();
@@ -469,7 +486,7 @@ function createGridironLevel(api) {
       // player
       const flashOn = player.hitFlash > 0 && Math.floor(player.hitFlash * 20) % 2 === 0;
       const jukeGlow = player.jukeTimer > 0;
-      drawRunner(ctx, player.x, player.y, player.facing, 1, flashOn ? '#ff5c5c' : (jukeGlow ? '#ffe08a' : '#2a6fa8'));
+      drawRunner(ctx, player.x, player.y, player.facing, 1, flashOn ? '#ff5c5c' : (jukeGlow ? '#ffe08a' : '#2a6fa8'), '#e8ecf4', player.runPhase, PLAYER_R);
 
       hitFx.draw(ctx);
       floatText.draw(ctx);
@@ -550,23 +567,66 @@ function createGridironLevel(api) {
     },
   };
 
-  // Simple top-down runner sprite: shadow + jersey torso + helmet, oriented
-  // toward `facing`. Shared by the live player and the juke afterimage trail.
-  function drawRunner(ctx, x, y, facing, alpha, bodyColor) {
+  // Top-down football player sprite: shadow, striding legs, shoulder pads,
+  // jersey torso with a number stripe, and a helmet with a facemask cage -
+  // oriented toward `facing`. Shared by the live player, the juke afterimage
+  // trail, and the defenders (with their own jersey/helmet colors).
+  function drawRunner(ctx, x, y, facing, alpha, bodyColor, helmetColor, runPhase, radius) {
     ctx.save();
     ctx.globalAlpha = alpha;
-    FX.shadow(ctx, x, y + 8, PLAYER_R * 0.9, 3, 0.35 * alpha);
+    const r = radius || PLAYER_R;
     const dx = facing ? facing.dx : 0, dy = facing ? facing.dy : -1;
-    FX.sphere(ctx, x, y, PLAYER_R, bodyColor);
+    const perpX = -dy, perpY = dx;
+    const stride = Math.sin(runPhase || 0);
+
+    FX.shadow(ctx, x, y + 8, r * 0.95, 3, 0.35 * alpha);
+
+    // striding legs, alternating fore/aft along the facing direction
+    ctx.fillStyle = 'rgba(28,24,20,0.85)';
+    [-1, 1].forEach((side) => {
+      const legT = stride * side;
+      const lx = x + perpX * r * 0.29 * side - dx * (r * 0.28 + legT * 2.5) * 0.6;
+      const ly = y + perpY * r * 0.29 * side - dy * (r * 0.28 + legT * 2.5) * 0.6 + r * 0.6;
+      ctx.beginPath();
+      ctx.ellipse(lx, ly, r * 0.22, r * 0.36, Math.atan2(dy, dx), 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // shoulder pads, wider than the torso for a padded silhouette
+    const padColor = FX.shade(bodyColor, -18);
+    [-1, 1].forEach((side) => {
+      ctx.beginPath();
+      ctx.ellipse(x + perpX * r * 0.71 * side, y + perpY * r * 0.71 * side, r * 0.4, r * 0.51, Math.atan2(dy, dx), 0, Math.PI * 2);
+      ctx.fillStyle = padColor;
+      ctx.fill();
+    });
+
+    // jersey torso
+    FX.sphere(ctx, x, y, r, bodyColor);
     ctx.strokeStyle = 'rgba(0,0,0,0.45)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.arc(x, y, PLAYER_R, 0, Math.PI * 2);
+    ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.stroke();
-    FX.sphere(ctx, x + dx * 3, y + dy * 3 - 5, 5, '#d9b98a');
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillRect(x - 1, y - r * 0.33, 2, r * 0.66);
+
+    // helmet with a facemask cage and a center stripe
+    const hx = x + dx * r * 0.33, hy = y + dy * r * 0.33 - r * 0.56;
+    FX.sphere(ctx, hx, hy, r * 0.56, helmetColor || '#d9b98a');
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(hx - dy * r * 0.47, hy + dx * r * 0.47);
+    ctx.lineTo(hx + dy * r * 0.47, hy - dx * r * 0.47);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(20,18,16,0.8)';
+    ctx.beginPath();
+    ctx.arc(hx + dx * r * 0.27, hy + dy * r * 0.27, r * 0.22, Math.PI * 0.15, Math.PI * 1.85);
+    ctx.stroke();
     ctx.fillStyle = 'rgba(255,255,255,0.7)';
     ctx.beginPath();
-    ctx.arc(x + dx * 5, y + dy * 5, 1.4, 0, Math.PI * 2);
+    ctx.arc(hx + dx * r * 0.56, hy + dy * r * 0.56, r * 0.14, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
