@@ -25,11 +25,12 @@
       <div id="screen-title" class="screen">
         <p class="eyebrow">NOW LOADING</p>
         <h1>GENX ARCADE</h1>
-        <p class="sub">fifteen classics. one quarter.</p>
+        <p class="sub">fourteen classics. one quarter.</p>
         <div class="levelist" id="level-list"></div>
         <p class="prompt blink">CLICK A GAME TO PLAY</p>
         <button class="menu-btn" data-key="Enter">START</button>
         <p class="controls">CLICK/TAP A GAME &middot; ARROWS + ENTER &middot; KEYBOARD, MOUSE &amp; TOUCH ALL WORK &middot; M MUTE</p>
+        <p class="controls">GRIDIRON DASH grew into its own game &rarr; <a href="gridiron/index.html">play it here</a></p>
       </div>
 
       <div id="screen-levelcomplete" class="screen hidden">
@@ -92,7 +93,7 @@
   </div>
 
   <script src="fx.js?v=2"></script>
-  <script src="game.js?v=3"></script>
+  <script src="game.js?v=4"></script>
   <script src="levels/shooter.js"></script>
   <script src="levels/platformer.js"></script>
   <script src="levels/breakout.js"></script>
@@ -107,7 +108,6 @@
   <script src="levels/tetris.js"></script>
   <script src="levels/bugblitz.js"></script>
   <script src="levels/skydefense.js"></script>
-  <script src="levels/gridiron.js?v=6"></script>
   <script>
     Game.registerLevel('STARBLASTER', createShooterLevel, 'shooter', 'Blast the alien invasion.');
     Game.registerLevel('CRATE RUNNER', createPlatformerLevel, 'platformer', 'Run, jump, stomp to the flag.');
@@ -123,7 +123,6 @@
     Game.registerLevel('BLOCK CASCADE', createTetrisLevel, 'puzzle', 'Clear lines before they stack up.');
     Game.registerLevel('BUG BLITZ', createBugBlitzLevel, 'garden', 'Blast the centipede before it reaches you.');
     Game.registerLevel('SKY DEFENSE', createSkyDefenseLevel, 'defense', 'Aim and intercept before the cities fall.');
-    Game.registerLevel('GRIDIRON DASH', createGridironLevel, 'football', 'Juke tacklers, sprint for the end zone.');
     Game.boot();
   </script>
 </body>

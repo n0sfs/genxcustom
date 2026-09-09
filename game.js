@@ -170,7 +170,7 @@ const Game = (() => {
       : 'NO HIGH SCORES YET — BE THE FIRST';
     const messages = [
       '★ GENX ARCADE ★',
-      '15 GAMES · PICK ONE · CHASE THE HIGH SCORE',
+      '14 GAMES · PICK ONE · CHASE THE HIGH SCORE',
       spotlight,
       'INSERT COIN TO CONTINUE',
       'CLICK ANY CABINET TO PLAY',

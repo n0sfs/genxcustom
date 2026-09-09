@@ -53,30 +53,7 @@ body {
 #hud-level { color: var(--cyan); }
 #hud-score { color: var(--yellow); }
 #hud-lives { color: var(--red); }
-#hud-sound { color: #7d86a3; font-size: 0.7em; cursor: default; }
-
-#marquee {
-  width: 100%;
-  overflow: hidden;
-  background: #05060a;
-  border: 2px solid var(--line);
-  border-radius: 4px;
-  padding: 4px 0;
-  white-space: nowrap;
-}
-#marquee-track {
-  display: inline-block;
-  font-family: var(--display);
-  font-size: 11px;
-  letter-spacing: 2px;
-  color: #ff8a1f;
-  text-shadow: 0 0 6px #ff8a1f, 0 0 12px rgba(255, 138, 31, 0.5);
-  animation: marquee-scroll 22s linear infinite;
-}
-@keyframes marquee-scroll {
-  from { transform: translateX(0); }
-  to { transform: translateX(-50%); }
-}
+#hud-sound { color: #7d86a3; font-size: 0.7em; cursor: pointer; }
 
 .initials-row { display: flex; gap: 10px; }
 .letter-slot {
@@ -159,8 +136,6 @@ body {
 
 .screen.hidden { display: none; }
 
-#screen-title { justify-content: flex-start; }
-
 .screen h1 {
   font-family: var(--display);
   color: var(--cyan);
@@ -196,62 +171,8 @@ body {
   50% { opacity: 1; }
 }
 
-.levelist {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 10px;
-  width: 100%;
-}
-
-.lvl-card {
-  --accent: var(--cyan);
-  display: flex;
-  flex-direction: column;
-  background: var(--panel);
-  border: 2px solid var(--accent);
-  border-radius: 6px;
-  overflow: hidden;
-  cursor: pointer;
-  text-align: left;
-  padding: 0;
-  transition: transform 0.12s ease, box-shadow 0.12s ease;
-}
-
-.lvl-card:hover,
-.lvl-card:focus-visible {
-  transform: translateY(-3px);
-  box-shadow: 0 6px 16px -4px var(--accent);
-  outline: none;
-}
-
-.lvl-card.selected {
-  box-shadow: 0 0 0 2px var(--accent), 0 6px 18px -4px var(--accent);
-}
-
-.lvl-thumb {
-  display: block;
-  aspect-ratio: 4 / 3;
-  background: #000;
-  overflow: hidden;
-}
-.lvl-thumb canvas { width: 100%; height: 100%; display: block; }
-
-.lvl-info { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px 8px; }
-.lvl-num { font-size: 12px; color: var(--accent); font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.lvl-tagline { font-size: 11px; color: #9aa3c0; line-height: 1.25; }
-.lvl-meta { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
-.lvl-meta .tag { font-size: 10px; color: #7d86a3; text-transform: uppercase; letter-spacing: 0.5px; }
-.lvl-best { font-size: 10px; color: var(--yellow); font-weight: bold; white-space: nowrap; }
-
-@media (max-width: 460px) {
-  .levelist { grid-template-columns: repeat(2, 1fr); }
-  .lvl-tagline { display: none; }
-  #marquee-track { font-size: 9px; letter-spacing: 1px; animation-duration: 16s; }
-}
-
 .prompt { font-family: var(--display); font-size: 11px; color: var(--green); }
 .controls { font-size: 15px; color: #7d86a3; letter-spacing: 0.5px; }
-.controls a { color: var(--cyan); }
 
 .blink { animation: blink 1.1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
@@ -347,12 +268,13 @@ body {
   color: #556;
   letter-spacing: 1px;
 }
+#footer a { color: #7d86a3; }
 
 /* Short, wide viewports (phone held sideways): the default vertical stack
-   (hud/marquee/stage/controls/footer) makes the stage grow to fill the
-   full width via aspect-ratio, which overflows the tiny viewport height
-   and pushes the touch controls off-screen. Lay the stage and controls
-   out side-by-side instead, sized off height rather than width. */
+   (hud/stage/controls/footer) makes the stage grow to fill the full width
+   via aspect-ratio, which overflows the tiny viewport height and pushes
+   the touch controls off-screen. Lay the stage and controls out
+   side-by-side instead, sized off height rather than width. */
 @media (orientation: landscape) and (max-height: 500px) {
   body { padding: 6px; }
   #wrap {
@@ -365,7 +287,7 @@ body {
   }
   #hud { flex: 0 0 100%; padding: 4px 10px; font-size: 12px; gap: 2px 12px; }
   #hud-title { display: none; }
-  #marquee, #footer { display: none; }
+  #footer { display: none; }
   #stage {
     width: auto;
     height: min(78vh, 60vw, 400px);

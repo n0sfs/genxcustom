@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>GRIDIRON DASH</title>
+<link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+  <div id="crt-boot" aria-hidden="true"></div>
+  <div id="wrap">
+    <div id="hud">
+      <span id="hud-title">GRIDIRON DASH</span>
+      <span id="hud-level">STAGE 1</span>
+      <span id="hud-score">SCORE 0</span>
+      <span id="hud-lives">LIVES &#9650;&#9650;&#9650;</span>
+      <span id="hud-sound">SOUND ON</span>
+    </div>
+
+    <div id="stage">
+      <canvas id="game" width="640" height="480"></canvas>
+
+      <div id="screen-title" class="screen">
+        <p class="eyebrow">NOW LOADING</p>
+        <h1>GRIDIRON DASH</h1>
+        <p class="sub">arcade broken-field football. juke, throw, score.</p>
+        <p class="prompt blink">PRESS ENTER OR TAP TO KICK OFF</p>
+        <button class="menu-btn" data-key="Enter">START</button>
+        <p class="controls">ARROWS/WASD MOVE &middot; SPACE TAP=HANDOFF HOLD=PASS &middot; M MUTE</p>
+        <p class="controls" id="best-score-line"></p>
+      </div>
+
+      <div id="screen-levelcomplete" class="screen hidden">
+        <h2 id="lc-title">STAGE CLEAR</h2>
+        <p id="lc-score"></p>
+        <p class="prompt blink">PRESS ENTER TO CONTINUE</p>
+        <button class="menu-btn" data-key="Enter">CONTINUE</button>
+      </div>
+
+      <div id="screen-gameover" class="screen hidden">
+        <h2 class="danger">GAME OVER</h2>
+        <p id="go-score"></p>
+        <p class="prompt blink">PRESS ENTER TO RETRY</p>
+        <button class="menu-btn" data-key="Enter">RETRY</button>
+      </div>
+
+      <div id="screen-win" class="screen hidden">
+        <h2 class="win">ALL STAGES CLEARED!</h2>
+        <p id="win-score"></p>
+        <p class="prompt blink">PRESS ENTER TO CONTINUE INTO ENDLESS MODE</p>
+        <button class="menu-btn" data-key="Enter">CONTINUE</button>
+      </div>
+
+      <div id="screen-pause" class="screen hidden">
+        <h2>PAUSED</h2>
+        <p class="prompt blink">PRESS P TO RESUME</p>
+        <p class="controls">PRESS ESC TO QUIT TO TITLE</p>
+        <button class="menu-btn" data-key="p">RESUME</button>
+        <button class="menu-btn secondary" data-key="Escape">QUIT TO TITLE</button>
+      </div>
+
+      <div id="screen-initials" class="screen hidden">
+        <p class="eyebrow">NEW HIGH SCORE</p>
+        <h2>ENTER YOUR INITIALS</h2>
+        <div class="initials-row">
+          <span class="letter-slot active">A</span>
+          <span class="letter-slot">A</span>
+          <span class="letter-slot">A</span>
+        </div>
+        <p class="controls">UP/DOWN CHANGE LETTER &middot; LEFT/RIGHT MOVE &middot; ENTER CONFIRM</p>
+        <button class="menu-btn" data-key="Enter">CONFIRM</button>
+      </div>
+
+    </div>
+
+    <div id="touch-controls">
+      <div id="touch-dpad" class="touch-group">
+        <button class="touch-btn dpad-up" data-key="ArrowUp" aria-label="Up">&#9650;</button>
+        <button class="touch-btn dpad-left" data-key="ArrowLeft" aria-label="Left">&#9664;</button>
+        <button class="touch-btn dpad-right" data-key="ArrowRight" aria-label="Right">&#9654;</button>
+        <button class="touch-btn dpad-down" data-key="ArrowDown" aria-label="Down">&#9660;</button>
+      </div>
+      <div id="touch-side" class="touch-group">
+        <button class="touch-btn pause-btn" data-key="p" aria-label="Pause">II</button>
+        <button class="touch-btn action-btn" data-key=" " aria-label="Action">&#9679;</button>
+      </div>
+    </div>
+
+    <div id="footer">a genx production &middot; standalone arcade football &middot; <a href="../index.html">&larr; back to GENX ARCADE</a></div>
+  </div>
+
+  <script src="../fx.js"></script>
+  <script src="sim.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
