@@ -50,8 +50,9 @@ function createGridironLevel(api) {
   const PASS_HOLD_THRESHOLD = 0.16;
   const PASS_FLIGHT_SPEED = 400;
   const INTERCEPT_CHANCE_COVERED = 0.7;
-  const BLOCK_RADIUS = 22;
-  const BLOCK_SPEED_MULT = 0.22; // how much of normal speed an engaged rusher keeps
+  const OL_SEEK_RANGE = 90; // how far a lineman will actively chase down a defender to block
+  const OL_SEEK_SPEED = 90;
+  const OL_ENGAGE_DIST = 15;
 
   function normalize(x, y) {
     const len = Math.hypot(x, y) || 1;
@@ -135,7 +136,12 @@ function createGridironLevel(api) {
       list.push({
         x: currentLOS + 4,
         y: FIELD_TOP + 20 + t * (FIELD_H - 40),
+        homeX: currentLOS + 4,
+        homeY: FIELD_TOP + 20 + t * (FIELD_H - 40),
+        facing: { dx: 1, dy: 0 },
         bob: Math.random() * Math.PI * 2,
+        engaged: false,
+        engagedWith: null,
       });
     }
     return list;
@@ -146,9 +152,19 @@ function createGridironLevel(api) {
     // A few defenders line up tight to the LOS and always rush whoever has
     // the ball (the D-line); the rest spawn further out and dynamically
     // cover the ball carrier or an active receiver, whichever is closer.
+    // Real research note: Tecmo Bowl's O-line doesn't slow rushers down on
+    // contact - it fully walls off every blocked defender for the play,
+    // predetermining (via play selection) that exactly a handful of
+    // "read-key" defenders stay unblocked. This game has no play-calling to
+    // predetermine that split, so a small fixed number of defenders are
+    // just marked unblockable up front and always stay live threats -
+    // everyone else is fair game for the O-line to fully neutralize once a
+    // lineman reaches them (see updateFieldActors).
     const lineCount = Math.min(3, Math.max(1, Math.floor(cfg.defenderCount / 2)));
+    const unblockableCoverage = Math.min(2, cfg.defenderCount - lineCount);
     for (let i = 0; i < cfg.defenderCount; i++) {
       const isLine = i < lineCount;
+      const isUnblockable = !isLine && (i - lineCount) < unblockableCoverage;
       let x, y, tries = 0;
       do {
         y = FIELD_TOP + 24 + Math.random() * (FIELD_H - 48);
@@ -161,6 +177,7 @@ function createGridironLevel(api) {
       list.push({
         x, y,
         isLine,
+        blockable: !isUnblockable,
         angle: Math.atan2(player.y - y, player.x - x),
         speed: cfg.defenderSpeed * theme.slow * (isLine ? 0.85 : 1),
         turnRate: cfg.turnRate,
@@ -179,7 +196,48 @@ function createGridironLevel(api) {
   // ~0.2-0.4s it's actually in the air instead of being locked in at the
   // moment of release.
   function updateFieldActors(dt) {
-    ol.forEach((o) => { o.bob += dt * 2; });
+    // O-line: each unengaged lineman seeks out the nearest still-blockable,
+    // not-yet-engaged defender within reach and moves to seal him off; once
+    // he arrives, that defender is walled out of the play (fully held, not
+    // just slowed) for the rest of the down - see spawnDefense() for why a
+    // couple of defenders are marked unblockable and never eligible here.
+    ol.forEach((o) => {
+      if (o.engaged) {
+        o.bob += dt * 10; // faster jitter reads as an active push, not idle standing
+        return;
+      }
+      o.bob += dt * 2;
+      let target = null, bestDist = OL_SEEK_RANGE;
+      defenders.forEach((d) => {
+        if (!d.alive || !d.blockable || d.blocked) return;
+        const dist = Math.hypot(d.x - o.homeX, d.y - o.homeY);
+        if (dist < bestDist) { bestDist = dist; target = d; }
+      });
+      if (target) {
+        const toT = normalize(target.x - o.x, target.y - o.y);
+        o.facing = toT;
+        const engageDist = Math.hypot(target.x - o.x, target.y - o.y);
+        if (engageDist < OL_ENGAGE_DIST) {
+          o.engaged = true;
+          o.engagedWith = target;
+          target.blocked = true;
+          hitFx.burst(target.x, target.y, 7, {
+            colors: ['#d9d9d9', '#8a8a8a', '#e8ecf4'], speedMin: 30, speedMax: 90, lifeMin: 0.15, lifeMax: 0.3,
+            sizeMin: 1.5, sizeMax: 3, gravity: 0,
+          });
+        } else {
+          o.x += toT.dx * OL_SEEK_SPEED * dt;
+          o.y += toT.dy * OL_SEEK_SPEED * dt;
+        }
+      } else {
+        // nobody left to block right now - drift back toward the line
+        const toHome = normalize(o.homeX - o.x, o.homeY - o.y);
+        if (Math.hypot(o.homeX - o.x, o.homeY - o.y) > 2) {
+          o.x += toHome.dx * OL_SEEK_SPEED * 0.6 * dt;
+          o.y += toHome.dy * OL_SEEK_SPEED * 0.6 * dt;
+        }
+      }
+    });
 
     if (rb && rb.active) {
       rb.x += 26 * theme.slow * dt;
@@ -193,28 +251,22 @@ function createGridironLevel(api) {
       r.runPhase += dt * 12;
     });
 
-    // Defenders: D-line always rushes whoever currently has the ball;
-    // coverage defenders dynamically peel toward whichever eligible target
-    // (ball carrier or an active receiver) is currently closest - simple
-    // emergent coverage without dedicated man-assignment logic. Anyone who
-    // wanders within BLOCK_RADIUS of an O-lineman is "engaged" and moves at
-    // a fraction of normal speed that frame.
+    // Defenders: a blocked defender is fully held by his O-lineman (see
+    // above) - he doesn't pursue at all, just shows a bit of struggle.
+    // Everyone else pursues as before: D-line always rushes whoever
+    // currently has the ball; coverage defenders dynamically peel toward
+    // whichever eligible target (ball carrier or an active receiver) is
+    // currently closest - simple emergent coverage without dedicated
+    // man-assignment logic.
     defenders.forEach((d) => {
       if (!d.alive) return;
-      d.bob += dt * 6;
-
-      let nearestBlockDist = Infinity;
-      ol.forEach((o) => {
-        const bd = Math.hypot(o.x - d.x, o.y - d.y);
-        if (bd < nearestBlockDist) nearestBlockDist = bd;
-      });
-      d.blocked = nearestBlockDist < BLOCK_RADIUS;
-      const speedMul = d.blocked ? BLOCK_SPEED_MULT : 1;
+      d.bob += dt * (d.blocked ? 9 : 6);
+      if (d.blocked) return;
 
       if (d.reaction > 0) {
         d.reaction -= dt;
-        d.x += Math.cos(d.angle) * d.speed * 0.25 * speedMul * dt;
-        d.y += Math.sin(d.angle) * d.speed * 0.25 * speedMul * dt;
+        d.x += Math.cos(d.angle) * d.speed * 0.25 * dt;
+        d.y += Math.sin(d.angle) * d.speed * 0.25 * dt;
         return;
       }
       let targetX = player.x, targetY = player.y;
@@ -230,8 +282,8 @@ function createGridironLevel(api) {
       const diff = angleDiff(desired, d.angle);
       const maxTurn = d.turnRate * dt;
       d.angle += clamp(diff, -maxTurn, maxTurn);
-      d.x += Math.cos(d.angle) * d.speed * speedMul * dt;
-      d.y += Math.sin(d.angle) * d.speed * speedMul * dt;
+      d.x += Math.cos(d.angle) * d.speed * dt;
+      d.y += Math.sin(d.angle) * d.speed * dt;
       d.y = clamp(d.y, FIELD_TOP + DEFENDER_R, FIELD_BOTTOM - DEFENDER_R);
     });
 
@@ -768,11 +820,11 @@ function createGridironLevel(api) {
         drawRunner(ctx, t.x, t.y, t.facing, a, '#7fb8d8', '#d9b98a', t.runPhase, PLAYER_R, 20);
       });
 
-      // offensive line: mostly stationary blockers, a faint dark clash
-      // spark if a rusher is currently engaged near them
+      // offensive line: faces whoever they're seeking/engaging, with a
+      // faster struggle-jitter while actively holding a block
       ol.forEach((o, i) => {
-        const bob = Math.sin(o.bob) * 0.6;
-        drawRunner(ctx, o.x, o.y + bob, { dx: 1, dy: 0 }, 1, '#1e5a8a', '#e8ecf4', o.bob, OL_R, 60 + i * 4);
+        const bob = Math.sin(o.bob) * (o.engaged ? 1.1 : 0.6);
+        drawRunner(ctx, o.x, o.y + bob, o.facing, 1, '#1e5a8a', '#e8ecf4', o.bob, OL_R, 60 + i * 4);
       });
 
       // defenders (D-line + coverage) - a small flash marks anyone
